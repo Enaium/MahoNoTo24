@@ -52,7 +52,7 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
     game.init()
     game.screen = GameState.Screen.TITLE
 
-    val titleTex = if (assets.fileExists("$assetsDir/title.png")) assets.textureFromFile("$assetsDir/title.png") else null
+    val titleBg = assets.textureFromFile("$assetsDir/title.png")
 
     val lastTick = longArrayOf(SDL.getTicks().toLong())
     var running = true
@@ -81,7 +81,7 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
         renderer.drawColor = SDLColor(0, 0, 0)
         renderer.clear()
 
-        renderGame(renderer, assets, text, game, titleTex)
+        renderGame(renderer, assets, text, game, titleBg)
 
         renderer.present()
         SDL.delay(16)
@@ -103,7 +103,7 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
     }
 
     text.close()
-    titleTex?.close()
+    titleBg.close()
     assets.close()
     audio.close()
     renderer.close()
@@ -120,50 +120,46 @@ private fun renderGame(
     assets: Assets,
     text: TextRenderer,
     game: GameState,
-    titleTex: SDLTexture?,
+    titleBg: SDLTexture,
 ) {
     when (game.screen) {
-        GameState.Screen.TITLE -> renderTitle(renderer, text, game, titleTex)
+        GameState.Screen.TITLE -> renderTitle(renderer, game, titleBg)
         GameState.Screen.HELP -> renderHelp(renderer, assets, text, game)
         GameState.Screen.GAME -> renderMap(renderer, assets, text, game)
         GameState.Screen.GAME_OVER -> renderGameOver(renderer, text)
     }
 }
 
-private fun renderTitle(renderer: SDLRenderer, text: TextRenderer, game: GameState, titleTex: SDLTexture?) {
-    if (titleTex != null) {
-        renderer.drawTexture(titleTex, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+private fun renderTitle(renderer: SDLRenderer, game: GameState, titleBg: SDLTexture) {
+    // the real title screen (main timeline frame 239): logo + baked menu text
+    renderer.drawTexture(titleBg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+    // selection cursor over the three baked menu rows (y centers 261 / 316 / 370)
+    val y = when (game.titleChoice) {
+        0 -> 261
+        1 -> 316
+        2 -> 370
+        else -> 261
     }
-    val items = listOf("开始游戏", "帮助", "退出游戏")
-    val startY = 318
-    for ((i, item) in items.withIndex()) {
-        val y = startY + i * 36
-        val color = if (i == game.titleChoice) SDLColor(255, 255, 0) else SDLColor(255, 255, 255)
-        text.drawCentered(item, SCREEN_WIDTH / 2, y, 1, color)
-        if (i == game.titleChoice) {
-            text.draw("▶", SCREEN_WIDTH / 2 - text.measure(item) / 2 - 24, y, 1, SDLColor(255, 255, 0))
-        }
-    }
-    text.drawCentered("按 空格 / 回车 选择", SCREEN_WIDTH / 2, 396, 1, SDLColor(140, 140, 140))
+    drawArrow(renderer, 205, y - 6)
 }
 
 private fun renderHelp(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
     val page = (game.helpPage + 1).coerceIn(1, 4)
     val tex = assets.textureFromFile("${assets.assetsDir()}/sprites/DefineSprite_699/$page.png")
     renderer.drawTexture(tex, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
-    text.drawCentered("第 $page / 4 页   空格 下一页", SCREEN_WIDTH / 2, 460, 1, SDLColor(200, 200, 200))
+    text.drawCentered("第 $page / 4 页   空格 下一页", SCREEN_WIDTH / 2, 396, 0.5f, SDLColor(200, 200, 200))
 }
 
 private fun renderGameOver(renderer: SDLRenderer, text: TextRenderer) {
     renderer.drawColor = SDLColor(0, 0, 0)
     renderer.fillRect(SDLRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
-    text.drawCentered("游 戏 结 束", SCREEN_WIDTH / 2, 150, 2, SDLColor(255, 255, 255))
-    text.drawCentered("感谢游玩 魔塔", SCREEN_WIDTH / 2, 220, 1, SDLColor(200, 200, 200))
-    text.drawCentered("按 ESC 返回标题", SCREEN_WIDTH / 2, 280, 1, SDLColor(150, 150, 150))
+    text.drawCentered("游 戏 结 束", SCREEN_WIDTH / 2, 150, 1f, SDLColor(255, 255, 255))
+    text.drawCentered("感谢游玩 魔塔", SCREEN_WIDTH / 2, 220, 0.5f, SDLColor(200, 200, 200))
+    text.drawCentered("按 ESC 返回标题", SCREEN_WIDTH / 2, 280, 0.5f, SDLColor(150, 150, 150))
 }
 
 private fun renderMap(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    // base display: 13x18 grid
+    // base display: 13x18 grid (original layout)
     for (i in 0 until 13) {
         for (j in 0 until 18) {
             val name = if (i in 1..11 && j in 6..16) "mt_00" else "mt_29"
@@ -180,7 +176,15 @@ private fun renderMap(renderer: SDLRenderer, assets: Assets, text: TextRenderer,
             if (t == 0) continue
             if (t == 97 || t == 98 || t == 99) continue // player spot
             val tex = assets.texture(baseName(t)) ?: continue
-            renderer.drawTexture(tex, GRID_X + j * 32, GRID_Y + i * 32)
+            val cx = GRID_X + j * 32
+            val cy = GRID_Y + i * 32
+            if (t == 2 || t == 3 || t == 4 || t == 5) {
+                // doors: align the sprite's content center with the cell center
+                val (ax, ay) = doorAnchor(assets, baseName(t))
+                renderer.drawTexture(tex, cx + 16 - ax, cy + 16 - ay)
+            } else {
+                renderer.drawTexture(tex, cx, cy)
+            }
         }
     }
 
@@ -191,7 +195,14 @@ private fun renderMap(renderer: SDLRenderer, assets: Assets, text: TextRenderer,
         val frame = ((game.doorTicks / 70).toInt() + 1).coerceAtMost(frames)
         val tex = assets.texture(name, frame) ?: assets.texture(name)
         if (tex != null) {
-            renderer.drawTexture(tex, GRID_X + game.lastY * 32, GRID_Y + game.lastX * 32)
+            val cx = GRID_X + game.lastY * 32
+            val cy = GRID_Y + game.lastX * 32
+            if (game.doorType == 2 || game.doorType == 3 || game.doorType == 4 || game.doorType == 5) {
+                val (ax, ay) = doorAnchor(assets, name)
+                renderer.drawTexture(tex, cx + 16 - ax, cy + 16 - ay)
+            } else {
+                renderer.drawTexture(tex, cx, cy)
+            }
         }
     }
 
@@ -219,6 +230,12 @@ private fun renderMap(renderer: SDLRenderer, assets: Assets, text: TextRenderer,
     renderSay(renderer, assets, game)
 }
 
+/** Content center (frame 1) of a door sprite, used to align doors on their cell. */
+private fun doorAnchor(assets: Assets, name: String): Pair<Int, Int> {
+    val img = assets.decodePng(name, 1)
+    return if (img != null) contentCenter(img) else (16 to 16)
+}
+
 private fun baseName(t: Int): String = when {
     t < 10 -> "mt_0$t"
     t == 115 -> "mt_15"
@@ -239,24 +256,20 @@ private fun sampleRow(assets: Assets, name: String, frame: Int, x: Int, y: Int):
 }
 
 private fun renderPanel(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    // life panel at (30,30)
+    // life panel on the left side — text at 0.5x (~14px, like the original)
     val lifeTex = assets.texture("mt_other_01") ?: return
     renderer.drawTexture(lifeTex, 30, 30)
-    val lifeRows = listOf(
-        Triple("等级", game.nowLife.toString(), 19),
-        Triple("生命", game.nowHp.toString(), 61),
-        Triple("攻击", game.nowGong.toString(), 84),
-        Triple("防御", game.nowFang.toString(), 106),
-        Triple("金币", game.nowMoney.toString(), 129),
-        Triple("经验", game.nowMp.toString(), 152),
-    )
-    for ((label, value, y) in lifeRows) {
-        val bg = sampleRow(assets, "mt_other_01", 1, 62, y + 8)
-        renderer.fillRect(SDLRect(34, 30 + y, 94, 16), bg)
-        text.draw(label, 43, 30 + y, 1, SDLColor(0, 0, 0))
-        text.draw(value, 118 - text.measure(value), 30 + y, 1, SDLColor(0, 0, 0))
+    val lifeLabels = arrayOf("等级", "生命", "攻击", "防御", "金币", "经验")
+    val lifeValues = arrayOf(game.nowLife.toString(), game.nowHp.toString(), game.nowGong.toString(), game.nowFang.toString(), game.nowMoney.toString(), game.nowMp.toString())
+    val lifeYs = intArrayOf(19, 61, 84, 106, 129, 152)
+    val lifeHs = intArrayOf(26, 18, 18, 18, 18, 18)
+    for (i in lifeLabels.indices) {
+        val bg = sampleRow(assets, "mt_other_01", 1, 62, lifeYs[i] + 8)
+        renderer.fillRect(SDLRect(34, 30 + lifeYs[i], 116, lifeHs[i]), bg)
+        text.draw(lifeLabels[i], 43, 30 + lifeYs[i], 0.5f, SDLColor(0, 0, 0))
+        text.draw(lifeValues[i], 140 - text.measure(lifeValues[i], 0.5f), 30 + lifeYs[i], 0.5f, SDLColor(0, 0, 0))
     }
-    // keys panel at (30,210)
+    // keys panel below the life panel
     val keysTex = assets.texture("mt_other_02") ?: return
     renderer.drawTexture(keysTex, 30, 210)
     val keysRows = listOf(
@@ -266,17 +279,17 @@ private fun renderPanel(renderer: SDLRenderer, assets: Assets, text: TextRendere
     )
     for ((label, value, y) in keysRows) {
         val bg = sampleRow(assets, "mt_other_02", 1, 62, y + 8)
-        renderer.fillRect(SDLRect(34, 210 + y, 94, 18), bg)
-        text.draw(label, 43, 210 + y, 1, SDLColor(0, 0, 0))
-        text.draw(value, 105 - text.measure(value), 210 + y, 1, SDLColor(0, 0, 0))
-        text.draw("个", 112, 210 + y, 1, SDLColor(0, 0, 0))
+        renderer.fillRect(SDLRect(34, 210 + y, 116, 18), bg)
+        text.draw(label, 43, 210 + y, 0.5f, SDLColor(0, 0, 0))
+        text.draw(value, 128 - text.measure(value, 0.5f), 210 + y, 0.5f, SDLColor(0, 0, 0))
+        text.draw("个", 142, 210 + y, 0.5f, SDLColor(0, 0, 0))
     }
     // floor row
     val floorBg = sampleRow(assets, "mt_other_02", 1, 62, 118)
-    renderer.fillRect(SDLRect(34, 210 + 112, 94, 16), floorBg)
-    text.draw("第", 43, 210 + 112, 1, SDLColor(0, 0, 0))
-    text.draw(game.nowLine.toString(), 100 - text.measure(game.nowLine.toString()), 210 + 112, 1, SDLColor(0, 0, 0))
-    text.draw("层", 107, 210 + 112, 1, SDLColor(0, 0, 0))
+    renderer.fillRect(SDLRect(34, 210 + 112, 116, 18), floorBg)
+    text.draw("第", 43, 210 + 112, 0.5f, SDLColor(0, 0, 0))
+    text.draw(game.nowLine.toString(), 118 - text.measure(game.nowLine.toString(), 0.5f), 210 + 112, 0.5f, SDLColor(0, 0, 0))
+    text.draw("层", 124, 210 + 112, 0.5f, SDLColor(0, 0, 0))
 }
 
 private fun renderLineBanner(renderer: SDLRenderer, text: TextRenderer, game: GameState) {
@@ -285,7 +298,7 @@ private fun renderLineBanner(renderer: SDLRenderer, text: TextRenderer, game: Ga
     renderer.drawColor = SDLColor(0, 0, 0, alpha)
     renderer.fillRect(SDLRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
     renderer.blendMode = SDLBlendMode.NONE
-    text.drawCentered(game.lineName(), SCREEN_WIDTH / 2, 185, 2, SDLColor(255, 255, 255))
+    text.drawCentered(game.lineName(), SCREEN_WIDTH / 2, 192, 1f, SDLColor(255, 255, 255))
 }
 
 private fun renderTextPopup(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
@@ -294,7 +307,7 @@ private fun renderTextPopup(renderer: SDLRenderer, assets: Assets, text: TextRen
     renderer.drawTexture(box.texture, 290 - 284, 150 - 33)
     renderer.drawColor = SDLColor(80, 80, 80)
     renderer.fillRect(SDLRect(290 - 95, 150 - 33 + 22, 190, 26))
-    text.drawCentered(game.textMessage, 290, 150 - 33 + 26, 1, SDLColor(255, 255, 255))
+    text.drawCentered(game.textMessage, 290, 150 - 33 + 25, 0.5f, SDLColor(255, 255, 255))
 }
 
 private fun renderKillDialog(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
@@ -304,30 +317,33 @@ private fun renderKillDialog(renderer: SDLRenderer, assets: Assets, text: TextRe
     val dy = 150 - 122
     renderer.drawTexture(box.texture, dx, dy)
     val bg = SDLColor(96, 96, 96)
-    val left = dx + 110
-    val right = dx + 345
-    val rows = listOf(30, 116, 176)
+    val left = dx + 115
+    val right = dx + 340
+    val rows = listOf(33, 63, 89)
     for (r in rows) {
-        renderer.fillRect(SDLRect(left, dy + r, 100, 20), bg)
-        renderer.fillRect(SDLRect(right, dy + r, 100, 20), bg)
+        renderer.fillRect(SDLRect(left, dy + r, 170, 17), bg)
+        renderer.fillRect(SDLRect(right, dy + r, 150, 17), bg)
     }
+    // cover the baked default digits of the 4th row as well
+    renderer.fillRect(SDLRect(left, dy + 117, 170, 15), bg)
+    renderer.fillRect(SDLRect(right, dy + 117, 150, 15), bg)
     val labels = listOf("生命值", "攻击力", "防御力")
     val values = listOf(game.killLeftHp, game.killLeftGong, game.killLeftFang)
     val rvalues = listOf(game.killRightHp, game.killRightGong, game.killRightFang)
     for (k in 0 until 3) {
-        text.draw(labels[k], left, dy + rows[k], 1, SDLColor(255, 255, 255))
-        text.draw(values[k].toString(), left + 90 - text.measure(values[k].toString()), dy + rows[k], 1, SDLColor(255, 255, 255))
-        text.draw(labels[k], right, dy + rows[k], 1, SDLColor(255, 255, 255))
-        text.draw(rvalues[k].toString(), right + 90 - text.measure(rvalues[k].toString()), dy + rows[k], 1, SDLColor(255, 255, 255))
+        text.draw(labels[k], left, dy + rows[k], 0.5f, SDLColor(255, 255, 255))
+        text.draw(values[k].toString(), left + 165 - text.measure(values[k].toString(), 0.5f), dy + rows[k], 0.5f, SDLColor(255, 255, 255))
+        text.draw(labels[k], right, dy + rows[k], 0.5f, SDLColor(255, 255, 255))
+        text.draw(rvalues[k].toString(), right + 140 - text.measure(rvalues[k].toString(), 0.5f), dy + rows[k], 0.5f, SDLColor(255, 255, 255))
     }
-    // monster and player images
+    // monster and player images, centered in the dialog's image slots
     val bossTex = assets.texture("mt_${40 + game.nowBossId}")
     if (bossTex != null) {
-        renderer.drawTexture(bossTex, 70, 105, 64, 64)
+        renderer.drawTexture(bossTex, dx + 21, dy + 41, 64, 64)
     }
     val manTex = assets.texture("mt_99", 1)
     if (manTex != null) {
-        renderer.drawTexture(manTex, 505, 105, 64, 64)
+        renderer.drawTexture(manTex, dx + 465, dy + 41, 64, 64)
     }
 }
 
@@ -371,13 +387,13 @@ private fun renderJump(renderer: SDLRenderer, assets: Assets, text: TextRenderer
         val col = i / 7
         val row = i % 7
         val x = dx + 20 + col * 88
-        val y = dy + 20 + row * 32
-        text.draw("第 ${i + 1} 层", x, y, 1, SDLColor(0, 0, 0))
+        val y = dy + 24 + row * 32
+        text.draw("第 ${i + 1} 层", x, y, 0.5f, SDLColor(0, 0, 0))
         if (i + 1 == game.jumpSelection) {
-            drawArrow(renderer, x - 16, y)
+            drawArrow(renderer, x - 16, y + 6)
         }
     }
-    text.drawCentered("按 2/8 选择  空格 确认  J 取消", dx + 130, dy + 268, 1, SDLColor(0, 0, 0))
+    text.drawCentered("按 2/8 选择  空格 确认  J 取消", dx + 130, dy + 272, 0.5f, SDLColor(0, 0, 0))
 }
 
 private fun renderList(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
@@ -390,14 +406,14 @@ private fun renderList(renderer: SDLRenderer, assets: Assets, text: TextRenderer
     renderer.fillRect(SDLRect(dx + 8, dy + 8, 340, 340), bg)
     val header = listOf("名称" to 60, "生命" to 130, "攻击" to 185, "防御" to 240, "金·经" to 290)
     for ((h, x) in header) {
-        text.draw(h, dx + x, dy + 20, 1, SDLColor(255, 255, 255))
+        text.draw(h, dx + x, dy + 24, 0.5f, SDLColor(255, 255, 255))
     }
     for ((k, t) in game.monsterList.withIndex()) {
         val b = game.boss[t - 40] ?: continue
         val ry = dy + 58 + k * 38
         val face = assets.texture("mt_$t")
         if (face != null) renderer.drawTexture(face, dx + 24, ry, 32, 32)
-        text.draw(b.name, dx + 60, ry + 10, 1, SDLColor(255, 255, 255))
+        text.draw(b.name, dx + 60, ry + 12, 0.5f, SDLColor(255, 255, 255))
         var hp = b.hp
         when (t) {
             60 -> hp += 100
@@ -405,12 +421,12 @@ private fun renderList(renderer: SDLRenderer, assets: Assets, text: TextRenderer
             50 -> hp += game.nowHp / 3
             57 -> hp += game.nowHp / 2
         }
-        text.draw(hp.toString(), dx + 130 + 24 - text.measure(hp.toString()), ry + 10, 1, SDLColor(255, 255, 255))
-        text.draw(b.gong.toString(), dx + 185 + 24 - text.measure(b.gong.toString()), ry + 10, 1, SDLColor(255, 255, 255))
-        text.draw(b.fang.toString(), dx + 240 + 24 - text.measure(b.fang.toString()), ry + 10, 1, SDLColor(255, 255, 255))
-        text.draw("${b.money}·${b.exp}", dx + 290, ry + 10, 1, SDLColor(255, 255, 255))
+        text.draw(hp.toString(), dx + 130 + 24 - text.measure(hp.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
+        text.draw(b.gong.toString(), dx + 185 + 24 - text.measure(b.gong.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
+        text.draw(b.fang.toString(), dx + 240 + 24 - text.measure(b.fang.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
+        text.draw("${b.money}·${b.exp}", dx + 290, ry + 12, 0.5f, SDLColor(255, 255, 255))
     }
-    text.drawCentered("按 L 关闭", dx + 178, dy + 330, 1, SDLColor(200, 200, 200))
+    text.drawCentered("按 L 关闭", dx + 178, dy + 332, 0.5f, SDLColor(200, 200, 200))
 }
 
 private fun renderSay(renderer: SDLRenderer, assets: Assets, game: GameState) {
@@ -575,7 +591,8 @@ class TestScript(private val game: GameState) {
                 if (frames == 1660) key(SDLKeycode.LEFT)
                 if (frames == 1750) key(SDLKeycode.LEFT)
                 if (frames == 1840) key(SDLKeycode.LEFT)
-                if (frames == 2100) screenshot() // kill dialog or after
+                if (frames == 1950) screenshot() // kill dialog mid-battle
+                if (frames == 2100) screenshot() // after battle
                 if (frames > 2200) {
                     state = 7
                     frames = 0

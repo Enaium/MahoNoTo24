@@ -64,8 +64,7 @@ object AtlasGenerator {
         val list = chars.toList()
         println("glyphs: ${list.size}")
 
-        val font = Font.createFont(Font.TRUETYPE_FONT, File(fontPath))
-            .deriveFont(Font.PLAIN, 26f)
+        val font = resolveFont(fontPath)
 
         val cell = 32
         val cols = 16
@@ -95,5 +94,33 @@ object AtlasGenerator {
         File(outputDir, "chars.txt").writeText(advances.toString())
         println("wrote $out (${img.width}x${img.height})")
         println("wrote ${File(outputDir, "chars.txt")}")
+    }
+
+    /**
+     * Resolves a font that can actually rasterize CJK glyphs. The game's
+     * embedded TTFs (黑体 etc.) fail to render with java.awt on macOS
+     * (canDisplay=false -> .notdef boxes), so fall back to system CJK fonts.
+     */
+    private fun resolveFont(fontPath: String): Font {
+        val test = '开'
+        try {
+            val f = Font.createFont(Font.TRUETYPE_FONT, File(fontPath))
+            if (f.canDisplay(test)) {
+                println("using embedded font: ${f.family}")
+                return f.deriveFont(Font.PLAIN, 26f)
+            }
+        } catch (t: Throwable) {
+            println("embedded font load failed: ${t.message}")
+        }
+        for (name in listOf("Heiti SC", "PingFang SC", "Hiragino Sans GB", "Songti SC", "STHeiti")) {
+            val f = Font(name, Font.PLAIN, 26)
+            if (f.canDisplay(test) && f.family != "Dialog" && f.family != "SansSerif") {
+                println("using system font: ${f.family}")
+                return f
+            }
+        }
+        val fallback = Font(Font.SANS_SERIF, Font.PLAIN, 26)
+        println("using fallback font: ${fallback.family} (canDisplay=${fallback.canDisplay(test)})")
+        return fallback
     }
 }

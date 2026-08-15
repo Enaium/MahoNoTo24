@@ -1323,14 +1323,16 @@ class GameState(private val assets: Assets, private val text: TextRenderer, priv
             if (killNumber % 2 == 0) {
                 var dmg = killRightGong - killLeftFang
                 if (dmg < 0) dmg = 0
-                // crit chance based on level
+                // crit: random(100) <= level (faithful to the original)
                 critRoll = (critRoll * 1103515245 + 12345) ushr 16
                 if (critRoll % 100 <= nowLife) {
                     dmg *= 2
+                    audio.playSfx("08")
+                } else {
+                    audio.playSfx("05")
                 }
                 killLeftHp -= dmg
                 if (killLeftHp < 0) killLeftHp = 0
-                audio.playSfx("05")
             } else {
                 var dmg = killLeftGong - killRightFang
                 if (dmg < 0) dmg = 0
