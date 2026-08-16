@@ -2,19 +2,31 @@
 
 《魔塔》经典 Flash 游戏的 Kotlin Multiplatform + SDL3 移植版。
 
-游戏原作：**胖老鼠工作室** 的经典 SWF 版魔塔。本仓库使用
+游戏原作：**胖老鼠工作室** 的经典魔塔。本仓库使用
 [Kotlin Multiplatform](https://kotlinlang.org/docs/multiplatform.html) 与
-[sdl-kmp](https://github.com/Enaium/sdl-kmp)（SDL3 的 KMP 绑定）将整个游戏
-重新实现
+[sdl-kmp](https://github.com/Enaium/sdl-kmp)（SDL3 的 KMP 绑定）将游戏重新实现。
+
+本移植版以 **h5mota（HTML5 魔塔平台）重制版**（`assets/`，24 层魔塔 Ver 1.12）的
+数据与逻辑为准：楼层地图、怪物/道具数据、事件脚本、商店、战斗公式与美术资源
+全部来自该版本，而非早期 SWF 版。
+
+![](https://img.cdn1.vip/i/6a81156f7e9f7_1786844527.webp)
 
 ## 特性
 
-- 完整移植原版 22 层地图、31 种怪物与全部游戏机制：
-  移动、战斗（含会心一击）、钥匙/门、道具、商店（金币/经验/钥匙买卖）、
-  楼层跳跃、怪物图鉴、NPC 对话（公主、商人、老者、魔王）、结局判定
-- 纯 Kotlin 编写的 PNG 解码器，不依赖 SDL_image
-- 中文 UI 文字：开发期用黑体字体预渲染为位图图集，运行时拼合
-- 音效与背景音乐（按楼层切换、循环播放）
+- 完整移植 h5mota 版 24 层魔塔：序章 + 21 层主塔 + 22/23 西/南/东隐藏层 + 地下层
+- 数据驱动：楼层、怪物、道具、事件、商店均解析自 `assets/` 的 JSON 数据
+  （使用 kotlinx.serialization）
+- 完整事件系统：对话（含头像/标题）、选择、确认、商店、楼层切换、开/关门、
+  显隐图块、战后/拾取事件等
+- 战斗：经典回合制（暴击、回合间隔可调）与极速模式（期望伤害公式），
+  支持破甲/净化/吸血/固伤/连击/反击等特殊效果；战后显示金币/经验奖励
+- 地图信息层（显伤）：怪物上直接显示预测伤害、击杀金币/经验数值，
+  道具上显示补充数值（需圣光徽）
+- 道具/状态：钥匙、宝石、血瓶、装备、毒/衰/咒状态、圣水等
+- 存档/读档（文件存储，FileKit）、怪物图鉴（X）、楼层传送（G）、道具栏（T）、
+  快捷商店（V）、帮助面板、鼠标操作
+- 纯 Kotlin PNG 解码器，不依赖 SDL_image；中文 UI 文字由开发期生成的字形图集渲染
 
 ## 目录结构
 
@@ -22,28 +34,23 @@
 src/
   commonMain/          # 全部游戏代码（逻辑 + 渲染 + 资源加载）
   jvmMain/             # JVM 入口 + 文字图集生成工具
-  nativeMain/          # macOS 原生入口 + 文件 IO
+  nativeMain/          # macOS 原生入口
 assets/
-  sprites/             # FFDec 导出的全部精灵帧（地图块/怪物/道具/UI/对话）
-  sounds/              # 由 mp3 转换的 WAV 音效与 BGM
+  images/ materials/ tilesets/ animates/ sounds_wav/ bgms_wav/ floors/  # h5mota 版数据与资源
+  data.json maps.json enemys.json items.json icons.json events.json      # 游戏数据（JSON）
   fonts/               # 黑体字体 + 生成的文字图集（atlas.png + chars.txt）
-  title.png            # 标题画面背景
 ```
 
 ## 构建与运行
 
 ```bash
 # JVM
-./gradlew jvmJar
-java -jar build/libs/MahoNoTo-jvm-1.0-SNAPSHOT.jar assets
+./gradlew fatJar
+java -jar build/libs/MahoNoTo-1.0-SNAPSHOT-all.jar assets
 
 # macOS 原生 (Apple Silicon)
 ./gradlew linkDebugExecutableMacosArm64
 ./build/bin/macosArm64/debugExecutable/MahoNoTo.kexe assets
-
-# macOS 原生 (Intel)
-./gradlew linkDebugExecutableMacosX64
-./build/bin/macosX64/debugExecutable/MahoNoTo.kexe assets
 ```
 
 > 游戏资源目录默认为 `assets`（相对工作目录），可传参指定其他路径。
@@ -57,30 +64,39 @@ java -jar build/libs/MahoNoTo-jvm-1.0-SNAPSHOT.jar assets
 ./build/bin/macosArm64/debugExecutable/MahoNoTo.kexe assets --test
 ```
 
+`--test --full` 为通关自测模式：以满属性（高血量/攻击/防御、全钥匙、
+全楼层传送）自动走完 21 层主塔并验证结局流程。
+
 ### 重新生成文字图集（开发用）
 
 ```bash
 ./gradlew generateAtlas
 ```
 
+图集会扫描 `assets/` 中全部 JSON 数据，确保对话/商店等所有文本字形可用。
+
 ## 操作
 
 | 按键 | 功能 |
 |------|------|
-| 方向键 | 移动 / 菜单选择 |
-| 空格 / 回车 | 确认（对话、商店、跳跃面板） |
-| 2 / 8 | 商店、跳跃面板中上下选择 |
-| 5 | 确认购买 / 跳跃 |
-| L | 打开 / 关闭怪物图鉴 |
-| J | 打开 / 关闭楼层跳跃 |
-| R | 重新开始游戏 |
-| Q | 回到序章 |
-| Esc | 返回标题画面 |
+| 方向键 | 移动（按住连续行走）/ 菜单选择 |
+| 空格 / 回车 | 确认（对话、选择、商店、跳跃面板） |
+| X / Esc | 关闭面板 / 商店 |
+| X | 怪物图鉴（需圣光徽） |
+| G | 楼层传送（需风之罗盘） |
+| T | 道具栏 |
+| V | 快捷商店 |
+| S / D | 存档 / 读档 |
+| F | 二倍斩技能（需炎之灵杖） |
+| Esc | 系统菜单 |
+| 鼠标 | 点击工具栏/选择/确认；点击地图格子高亮怪物 |
 
 ## 移植说明
 
-- 地图与怪物数据从原 SWF 脚本（`frame_1158 DoAction.as`）解析生成
-  （见 `MapData.kt`），游戏逻辑逐行对照移植（见 `GameState.kt`）。
-- 战斗采用原版回合制：每 500ms 一轮攻防，攻击方按等级概率触发双倍伤害。
-- 对话（公主、商人等）使用 FFDec 导出的静态帧图，按阶段切换帧。
-- 窗口保持原版 570x410 尺寸 1:1 渲染，还原 2005 年的画面质感。
+- 数据文件由 h5mota 编辑器导出的 JS 转换为 JSON（`assets/*.json`），
+  用 kotlinx.serialization 解析；文件读写使用
+  [FileKit](https://github.com/vinceglb/FileKit)。
+- 游戏逻辑对照 h5mota 引擎实现：移动/碰撞、事件机、战斗公式、商店、
+  状态栏（自绘）、对话框（winSkin 九宫格）等。
+- 渲染为 640x480 窗口，地图 13x13（32px/格），状态栏在左侧、工具栏在地图下方，
+  与 h5mota PC 布局一致。

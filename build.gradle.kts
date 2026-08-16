@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     kotlin("multiplatform") version "2.4.10"
+    kotlin("plugin.serialization") version "2.4.10"
 }
 
 group = "cn.enaium"
@@ -10,6 +11,7 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    google()
 }
 
 kotlin {
@@ -27,15 +29,13 @@ kotlin {
             entryPoint = "cn.enaium.mahonoto.main"
         }
     }
-    macosX64 {
-        binaries.executable {
-            entryPoint = "cn.enaium.mahonoto.main"
-        }
-    }
 
     sourceSets {
         commonMain.dependencies {
             implementation("cn.enaium.sdl:sdl-kmp:1.0.7")
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+            implementation("io.github.vinceglb:filekit-core:0.15.0")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
@@ -52,9 +52,25 @@ tasks.register<JavaExec>("generateAtlas") {
     args(
         rootProject.file("assets/fonts/317_黑体.ttf").absolutePath,
         rootProject.file("assets/fonts").absolutePath,
+        rootProject.file("assets").absolutePath,
     )
 }
 
+
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    description = "Builds a runnable fat jar (includes Kotlin stdlib etc.)"
+    archiveClassifier.set("all")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes["Main-Class"] = "cn.enaium.mahonoto.MainKt"
+    }
+    from(kotlin.jvm().compilations.getByName("main").output.allOutputs)
+    dependsOn(configurations.named("jvmRuntimeClasspath"))
+    from({
+        configurations.named("jvmRuntimeClasspath").get().map { if (it.isDirectory) it else zipTree(it) }
+    })
+}
 
 tasks.withType(JavaExec::class.java).configureEach {
     if (OperatingSystem.current().isMacOsX && name == "jvmRun") {

@@ -9,8 +9,12 @@ import cn.enaium.sdl.SDL
  * Audio: short SFX are played on a dedicated stream (cleared before each
  * play, like the original's single sound channel); BGM is queued on a
  * separate looping stream.
+ *
+ * Loads:
+ *   sounds_wav dir  -> SFX keyed by file base name
+ *   bgms_wav dir    -> BGM keyed by file base name
  */
-class Audio(private val assets: Assets) {
+class Audio(private val root: String) {
 
     private val sfx = HashMap<String, ByteArray>()
     private val bgm = HashMap<String, ByteArray>()
@@ -21,22 +25,17 @@ class Audio(private val assets: Assets) {
     private var enabled = true
 
     fun load() {
-        val entries = listDir("${assets.assetsDir()}/sounds") ?: return
-        for (name in entries) {
-            if (!name.endsWith(".wav")) continue
-            val base = name.removeSuffix(".wav")
-            // "18_music_00.wav" -> music_00 ; "720.wav" -> bgm_720
-            val key = if (base.contains("music_")) {
-                base.substringAfter("music_")
-            } else {
-                "bgm_$base"
-            }
-            val wav = SDL.loadWAV("${assets.assetsDir()}/sounds/$name") ?: continue
-            if (key.startsWith("bgm_")) {
-                bgm[key] = wav.data
-            } else {
-                sfx[key] = wav.data
-            }
+        Fio.listDir("$root/sounds_wav")?.forEach { name ->
+            if (!name.endsWith(".wav")) return@forEach
+            val key = name.removeSuffix(".wav")
+            val wav = SDL.loadWAV("$root/sounds_wav/$name") ?: return@forEach
+            sfx[key] = wav.data
+        }
+        Fio.listDir("$root/bgms_wav")?.forEach { name ->
+            if (!name.endsWith(".wav")) return@forEach
+            val key = name.removeSuffix(".wav")
+            val wav = SDL.loadWAV("$root/bgms_wav/$name") ?: return@forEach
+            bgm[key] = wav.data
         }
     }
 

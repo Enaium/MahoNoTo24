@@ -1,0 +1,529 @@
+{
+ "commonEvent": {
+  "加点事件": [
+   {
+    "type": "comment",
+    "text": "通过传参，变量：arg1 表示当前应该的加点数值"
+   },
+   {
+    "type": "choices",
+    "choices": [
+     {
+      "text": "攻击+${1*变量：arg1}",
+      "action": [
+       {
+        "type": "setValue",
+        "name": "status:atk",
+        "operator": "+=",
+        "value": "1*变量：arg1"
+       }
+      ]
+     },
+     {
+      "text": "防御+${2*变量：arg1}",
+      "action": [
+       {
+        "type": "setValue",
+        "name": "status:def",
+        "operator": "+=",
+        "value": "2*变量：arg1"
+       }
+      ]
+     },
+     {
+      "text": "生命+${200*变量：arg1}",
+      "action": [
+       {
+        "type": "setValue",
+        "name": "status:hp",
+        "operator": "+=",
+        "value": "200*变量：arg1"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "回收钥匙商店": [
+   {
+    "type": "while",
+    "condition": "(core.canUseQuickShop('keyShop2')==null)",
+    "data": [
+     {
+      "type": "choices",
+      "text": "\t[商人,trader]哦，欢迎你的到来，如果你手里缺少金币，我可以帮你：",
+      "choices": [
+       {
+        "text": "卖出一把黄钥匙（7）",
+        "action": [
+         {
+          "type": "if",
+          "condition": "(item:yellowKey >= 1)",
+          "true": [
+           {
+            "type": "playSound",
+            "name": "keySold.mp3"
+           },
+           {
+            "type": "setValue",
+            "name": "item:yellowKey",
+            "operator": "-=",
+            "value": "1"
+           },
+           {
+            "type": "setValue",
+            "name": "status:money",
+            "operator": "+=",
+            "value": "7"
+           },
+           {
+            "type": "setValue",
+            "name": "flag:keyshop2_yellow_sell",
+            "operator": "+=",
+            "value": "1"
+           }
+          ],
+          "false": [
+           "\t[商人,trader]你没有黄钥匙！"
+          ]
+         }
+        ]
+       },
+       {
+        "text": "卖出一把蓝钥匙（35）",
+        "action": [
+         {
+          "type": "if",
+          "condition": "(item:blueKey >= 1)",
+          "true": [
+           {
+            "type": "playSound",
+            "name": "keySold.mp3"
+           },
+           {
+            "type": "setValue",
+            "name": "item:blueKey",
+            "operator": "-=",
+            "value": "1"
+           },
+           {
+            "type": "setValue",
+            "name": "status:money",
+            "operator": "+=",
+            "value": "35"
+           },
+           {
+            "type": "setValue",
+            "name": "flag:keyshop2_blue_sell",
+            "operator": "+=",
+            "value": "1"
+           }
+          ],
+          "false": [
+           "\t[商人,trader]你没有蓝钥匙！"
+          ]
+         }
+        ]
+       },
+       {
+        "text": "卖出一把红钥匙（70）",
+        "action": [
+         {
+          "type": "if",
+          "condition": "(item:redKey>= 1)",
+          "true": [
+           {
+            "type": "playSound",
+            "name": "keySold.mp3"
+           },
+           {
+            "type": "setValue",
+            "name": "item:redKey",
+            "operator": "-=",
+            "value": "1"
+           },
+           {
+            "type": "setValue",
+            "name": "status:money",
+            "operator": "+=",
+            "value": "70"
+           },
+           {
+            "type": "setValue",
+            "name": "flag:keyshop2_red_sell",
+            "operator": "+=",
+            "value": "1"
+           }
+          ],
+          "false": [
+           "\t[商人,trader]你没有红钥匙！"
+          ]
+         }
+        ]
+       },
+       {
+        "text": "离开商店",
+        "action": [
+         {
+          "type": "playSound",
+          "name": "queren.mp3"
+         },
+         {
+          "type": "exit"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "type": "playSound",
+      "name": "keyUnsold.mp3"
+     }
+    ]
+   }
+  ],
+  "游戏帮助": [
+   {
+    "type": "function",
+    "function": "function(){\ncore.status.route.push('help')\n}"
+   },
+   {
+    "type": "while",
+    "condition": "true",
+    "data": [
+     {
+      "type": "choices",
+      "choices": [
+       {
+        "text": "游戏说明",
+        "action": [
+         {
+          "type": "choices",
+          "choices": [
+           {
+            "text": "暴击与相关机制",
+            "action": [
+             "\t[作者,king]Flash原版中，勇士有随机暴击（即某一次攻击的伤害结果会变为两倍，原版游戏中会有“一匹脱”的声音发出），概率值为等级/200（最高为1）\n现复刻版中，“经典模式”完全依照原版的战斗过程。“极速模式”则没有暴击机制。",
+             "\t[作者,king]Flash原版中有仁慈机制，如果勇士的血量小于等于怪物手册里显示的伤害（按无暴击计算），则无法与怪物开战。"
+            ]
+           },
+           {
+            "text": "结局条件",
+            "action": [
+             "\t[24层结局]如果您在拿到十字架前，先去16F找老人拿到神秘宝物，并交给0层的仙子，即可开通22层及以上的隐藏层，击败24层血影后达成24层结局。",
+             "\t[21层结局]如果您直接拿取十字架，则16F老人会立即消失，此时击败21层冥灵魔王后达成21层结局。"
+            ]
+           },
+           {
+            "text": "游戏榜单",
+            "action": [
+             "\t[作者,king]本塔的经典模式不计榜单。极速模式下，可选择打出【21层结局】或【24层结局】。上述2种结局下，均设置13个榜单：最高血量、最高攻击、最高攻防和、最高等级、最多金币、最多经验、最多金币商店购买次数、最多经验老人购买次数、最多留存怪物、最低防御、最低攻防和、最少金币商店购买次数、最少经验老人购买次数。因此，全塔共有2*13=26个榜单。"
+            ]
+           },
+           {
+            "text": "怪物增强",
+            "action": [
+             {
+              "type": "choices",
+              "choices": [
+               {
+                "text": "16层红衣魔王",
+                "icon": "redKing",
+                "action": [
+                 "\t[16层红衣魔王,redKing]当16层的红衣魔王被击败后，以下怪物将获得强化：\n·灵武士\\i[darkKnight]: HP 1600, ATK 1306, DEF 1200, 金币 117, 经验 100\n·冥队长\\i[ghostSkeleton]: HP 3333, ATK 1200, DEF 1133, 金币 112, 经验 100\n·灵法师\\i[blackMagician]: HP 2000, ATK 1106, DEF 973, 金币 106, 经验 93\n·红衣魔王\\i[redKing]: HP 20000, ATK 1333, DEF 1333, 金币 133, 经验 133"
+                ]
+               },
+               {
+                "text": "19层冥灵魔王",
+                "icon": "vampire",
+                "action": [
+                 "\t[19层冥灵魔王,vampire]当19层的冥灵魔王被击败后，冥灵魔王将获得强化：\n HP 45000, ATK 2550, DEF 2250, 金币 312, 经验 275"
+                ]
+               },
+               {
+                "text": "21层冥灵魔王",
+                "icon": "vampire",
+                "action": [
+                 "\t[21层冥灵魔王,vampire]当21层的冥灵魔王被击败后，以下怪物将获得强化：\n·红衣魔王\\i[redKing]: HP 30000, ATK 2666, DEF 2666, 金币 166, 经验 166\n·灵武士\\i[darkKnight]: HP 2400, ATK 2612, DEF 2400, 金币 146, 经验 125\n·冥队长\\i[ghostSkeleton]: HP 4999, ATK 2400, DEF 2266, 金币 140, 经验 125\n·灵法师\\i[blackMagician]: HP 3000, ATK 2212, DEF 1946, 金币 132, 经验 116\n·冥灵魔王\\i[vampire]: HP 60000, ATK 3400, DEF 3000, 金币 390, 经验 343"
+                ]
+               },
+               {
+                "text": "返回",
+                "action": [
+                 {
+                  "type": "break",
+                  "n": 1
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "text": "自动操作",
+        "color": [
+         101,
+         255,
+         255,
+         1
+        ],
+        "condition": "!flag:战斗动画",
+        "action": [
+         {
+          "type": "while",
+          "condition": "1",
+          "data": [
+           {
+            "type": "function",
+            "function": "function(){\nif (!core.status.hero.flags.__auto__) core.status.hero.flags.__auto__ = { battle: false, item: false, wall: false }\n}"
+           },
+           {
+            "type": "choices",
+            "text": "选择要开启的功能",
+            "choices": [
+             {
+              "text": "自动清零伤怪 [off]",
+              "condition": "!core.status.hero.flags.__auto__.battle",
+              "action": [
+               {
+                "type": "function",
+                "function": "function(){\ncore.status.hero.flags.__auto__.battle = true;\n}"
+               },
+               {
+                "type": "tip",
+                "text": "自动清怪已开启"
+               }
+              ]
+             },
+             {
+              "text": "自动清零伤怪 [on]",
+              "condition": "core.status.hero.flags.__auto__.battle",
+              "action": [
+               {
+                "type": "function",
+                "function": "function(){\ncore.status.hero.flags.__auto__.battle = false;\n}"
+               },
+               {
+                "type": "tip",
+                "text": "自动清怪已关闭"
+               }
+              ]
+             },
+             {
+              "text": "自动拾取物品 [off]",
+              "condition": "!core.status.hero.flags.__auto__.item",
+              "action": [
+               {
+                "type": "function",
+                "function": "function(){\ncore.status.hero.flags.__auto__.item = 'nopotion';\n}"
+               },
+               {
+                "type": "tip",
+                "text": "已开启：拾取物品(不含血瓶)"
+               }
+              ]
+             },
+             {
+              "text": "自动拾取物品 [不含血瓶]",
+              "condition": "core.status.hero.flags.__auto__.item == 'nopotion'",
+              "action": [
+               {
+                "type": "function",
+                "function": "function(){\ncore.status.hero.flags.__auto__.item = 'all';\n}"
+               },
+               {
+                "type": "tip",
+                "text": "已切换：拾取全部物品"
+               }
+              ]
+             },
+             {
+              "text": "自动拾取物品 [全部]",
+              "condition": "core.status.hero.flags.__auto__.item == 'all' || core.status.hero.flags.__auto__.item === true",
+              "action": [
+               {
+                "type": "function",
+                "function": "function(){\ncore.status.hero.flags.__auto__.item = false;\n}"
+               },
+               {
+                "type": "tip",
+                "text": "自动拾取已关闭"
+               }
+              ]
+             },
+             {
+              "text": "退出设置",
+              "action": [
+               {
+                "type": "break",
+                "n": 1
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "text": "交易统计",
+        "action": [
+         {
+          "type": "function",
+          "function": "function(){\ncore.plugin.showTradeSummary()\n}"
+         }
+        ]
+       },
+       {
+        "text": "移动音效 [on]",
+        "condition": "flag:移动音效",
+        "action": [
+         {
+          "type": "setValue",
+          "name": "flag:移动音效",
+          "value": "false"
+         }
+        ]
+       },
+       {
+        "text": "移动音效 [off]",
+        "condition": "!flag:移动音效",
+        "action": [
+         {
+          "type": "setValue",
+          "name": "flag:移动音效",
+          "value": "true"
+         }
+        ]
+       },
+       {
+        "text": "动画速度",
+        "condition": "flag:战斗动画",
+        "action": [
+         {
+          "type": "while",
+          "condition": "true",
+          "data": [
+           {
+            "type": "choices",
+            "text": "当前回合间隔：${flag:回合间隔}",
+            "choices": [
+             {
+              "text": "减速（+25）",
+              "action": [
+               {
+                "type": "setValue",
+                "name": "flag:回合间隔",
+                "operator": "+=",
+                "value": "25"
+               },
+               {
+                "type": "if",
+                "condition": "(flag:回合间隔 > 500)",
+                "true": [
+                 {
+                  "type": "setValue",
+                  "name": "flag:回合间隔",
+                  "value": "500"
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "text": "加速（-25）",
+              "action": [
+               {
+                "type": "setValue",
+                "name": "flag:回合间隔",
+                "operator": "-=",
+                "value": "25"
+               },
+               {
+                "type": "if",
+                "condition": "(flag:回合间隔 < 0)",
+                "true": [
+                 {
+                  "type": "setValue",
+                  "name": "flag:回合间隔",
+                  "value": "0"
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "text": "置0",
+              "action": [
+               {
+                "type": "setValue",
+                "name": "flag:回合间隔",
+                "value": "0"
+               }
+              ]
+             },
+             {
+              "text": "返回主菜单",
+              "action": [
+               {
+                "type": "break",
+                "n": 1
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "text": "返回游戏",
+        "action": [
+         {
+          "type": "break",
+          "n": 1
+         }
+        ]
+       },
+       {
+        "text": "详细显伤[on]",
+        "condition": "flag:显示详细信息",
+        "action": [
+         {
+          "type": "setValue",
+          "name": "flag:显示详细信息",
+          "value": "false"
+         }
+        ]
+       },
+       {
+        "text": "详细显伤[off]",
+        "condition": "!flag:显示详细信息",
+        "action": [
+         {
+          "type": "setValue",
+          "name": "flag:显示详细信息",
+          "value": "true"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "关于游戏": [
+   "\t[魔塔样板]版本： ${main.__VERSION__}\n作者： 艾之葵\nHTML5 魔塔交流群：624253557\n三原魔塔整活宇宙四群：1033598249",
+   "\t[24层魔塔]《24层魔塔》是由胖老鼠工作室于2003年发布的Flash游戏（初始版本仅设有21层），2004年推出V1.1版和V1.12版，扩展至24层剧情。24层魔塔作为中国首款魔塔游戏，和50层魔塔、新新魔塔并称为三原塔，对中国早期魔塔的发展产生了深远影响。",
+   "\t[此前的复刻]（排名不分先后）\n复刻者：艾之葵、秋橙、北海小羊\n\n在此致谢诸位前辈的探索与积累，为本项目提供了重要参考与传承。",
+   "\t[您所游玩的版本]基于FlashV1.12版本复刻。\n复刻者：详见本塔置顶评论。\n\n感谢所有参与其中的玩家与测试者，是你们让本塔不断完善。"
+  ]
+ }
+}

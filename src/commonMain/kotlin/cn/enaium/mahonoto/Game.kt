@@ -1,24 +1,22 @@
 package cn.enaium.mahonoto
 
+import cn.enaium.mahonoto.Assets
+import cn.enaium.mahonoto.GameData
+import cn.enaium.mahonoto.Game
+import cn.enaium.mahonoto.Renderer
 import cn.enaium.sdl.SDL
-import cn.enaium.sdl.SDLBlendMode
 import cn.enaium.sdl.SDLColor
 import cn.enaium.sdl.SDLEvent
 import cn.enaium.sdl.SDLInitFlags
 import cn.enaium.sdl.SDLKeycode
-import cn.enaium.sdl.SDLRect
 import cn.enaium.sdl.SDLRenderer
-import cn.enaium.sdl.SDLTexture
 import cn.enaium.sdl.SDLWindow
 import cn.enaium.sdl.SDLWindowFlags
 
-const val SCREEN_WIDTH = 570
-const val SCREEN_HEIGHT = 410
-const val GRID_X = 207
-const val GRID_Y = 47
-const val CELL = 32
+const val SCREEN_WIDTH = 640
+const val SCREEN_HEIGHT = 480
 
-fun runGame(assetsDir: String, testMode: Boolean = false) {
+fun runGame(assetsDir: String, testMode: Boolean = false, fullTest: Boolean = false) {
     SDL.setMainReady()
 
     if (testMode) {
@@ -31,33 +29,35 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
     }
 
     val window = SDL.createWindow(
-        title = "魔塔 - sdl-kmp port",
+        title = "24层魔塔",
         width = SCREEN_WIDTH,
         height = SCREEN_HEIGHT,
     )
     val renderer = SDL.createRenderer(window)
 
+    // ---- load the h5mota game data + resources ----
+    val data = GameData(assetsDir)
+    data.load()
+
     val assets = Assets(assetsDir)
-    assets.scan()
     assets.setRenderer(renderer)
 
-    val audio = Audio(assets)
+    val audio = Audio(assetsDir)
     audio.load()
     audio.initStreams()
 
-    val text = TextRenderer(assets, renderer)
+    val text = TextRenderer(renderer)
     text.load("$assetsDir/fonts")
 
-    val game = GameState(assets, text, audio)
-    game.init()
-    game.screen = GameState.Screen.TITLE
-
-    val titleBg = assets.textureFromFile("$assetsDir/title.png")
+    val game = Game(data, assets, audio, text)
+    val render = Renderer(game, assets, text, renderer)
+    game.showTitle()
 
     val lastTick = longArrayOf(SDL.getTicks().toLong())
     var running = true
 
-    val test = if (testMode) TestScript(game) else null
+    val test = if (testMode && !fullTest) TestScript(game) else null
+    val playthrough = if (testMode && fullTest) PlaythroughTest(game) else null
 
     while (running) {
         val now = SDL.getTicks().toLong()
@@ -70,18 +70,27 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
                 is SDLEvent.Quit -> running = false
                 is SDLEvent.Window ->
                     if (event.type == cn.enaium.sdl.SDLWindowEventType.CLOSE_REQUESTED) running = false
-                is SDLEvent.Key ->
-                    if (event.down && !event.repeat) game.onKeyDown(event.keycode)
+                is SDLEvent.Key -> {
+                    if (event.down) {
+                        if (!event.repeat) game.onKeyDown(event.keycode)
+                    } else {
+                        game.onKeyUp(event.keycode)
+                    }
+                }
+                is SDLEvent.MouseButton -> {
+                    if (event.down) game.onMouseDown(event.x.toInt(), event.y.toInt())
+                }
                 else -> Unit
             }
         }
 
-        game.update(dt)
+        game.update(dt.toLong())
+        render.update(dt.toLong())
 
         renderer.drawColor = SDLColor(0, 0, 0)
         renderer.clear()
 
-        renderGame(renderer, assets, text, game, titleBg)
+        render.render()
 
         renderer.present()
         SDL.delay(16)
@@ -100,10 +109,23 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
                 running = false
             }
         }
+        if (playthrough != null) {
+            if (playthrough.takeShot()) {
+                val surf = renderer.renderReadPixels(null)
+                if (surf != null) {
+                    val name = "full_${playthrough.shotCount()}"
+                    surf.saveBMP("$assetsDir/../shots/$name.bmp")
+                    println("saved $name.bmp")
+                    surf.close()
+                }
+            }
+            if (playthrough.tick(dt)) {
+                running = false
+            }
+        }
     }
 
     text.close()
-    titleBg.close()
     assets.close()
     audio.close()
     renderer.close()
@@ -111,377 +133,331 @@ fun runGame(assetsDir: String, testMode: Boolean = false) {
     SDL.quit()
 }
 
-// =====================================================================
-//  Rendering
-// =====================================================================
+/**
+ * Full playthrough test driver: gives the hero infinite stats/keys and
+ * auto-walks through the floors (BFS to the stairs), advancing dialogues,
+ * to verify the game can be cleared (21层结局 and 24层结局).
+ * Run with `--test --full`.
+ */
+class PlaythroughTest(private val game: Game) {
+    private var frames = 0
+    private var phase = 0
+    private var shot = 0
+    private var pendingShot = false
+    private var path = ArrayDeque<Pair<Int, Int>>()
+    private var lastFloor = ""
+    private var targetFloor: String? = null
+    private var cheatApplied = false
+    private var finalFloors = ArrayDeque<String>()
+    private var shotsDone = 0
 
-private fun renderGame(
-    renderer: SDLRenderer,
-    assets: Assets,
-    text: TextRenderer,
-    game: GameState,
-    titleBg: SDLTexture,
-) {
-    when (game.screen) {
-        GameState.Screen.TITLE -> renderTitle(renderer, game, titleBg)
-        GameState.Screen.HELP -> renderHelp(renderer, assets, text, game)
-        GameState.Screen.GAME -> renderMap(renderer, assets, text, game)
-        GameState.Screen.GAME_OVER -> renderGameOver(renderer, text)
-    }
-}
+    fun shotCount(): Int = shot
 
-private fun renderTitle(renderer: SDLRenderer, game: GameState, titleBg: SDLTexture) {
-    // the real title screen (main timeline frame 239): logo + baked menu text
-    renderer.drawTexture(titleBg, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
-    // selection cursor over the three baked menu rows (y centers 261 / 316 / 370)
-    val y = when (game.titleChoice) {
-        0 -> 261
-        1 -> 316
-        2 -> 370
-        else -> 261
-    }
-    drawArrow(renderer, 205, y - 6)
-}
-
-private fun renderHelp(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val page = (game.helpPage + 1).coerceIn(1, 4)
-    val tex = assets.textureFromFile("${assets.assetsDir()}/sprites/DefineSprite_699/$page.png")
-    renderer.drawTexture(tex, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
-    text.drawCentered("第 $page / 4 页   空格 下一页", SCREEN_WIDTH / 2, 396, 0.5f, SDLColor(200, 200, 200))
-}
-
-private fun renderGameOver(renderer: SDLRenderer, text: TextRenderer) {
-    renderer.drawColor = SDLColor(0, 0, 0)
-    renderer.fillRect(SDLRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
-    text.drawCentered("游 戏 结 束", SCREEN_WIDTH / 2, 150, 1f, SDLColor(255, 255, 255))
-    text.drawCentered("感谢游玩 魔塔", SCREEN_WIDTH / 2, 220, 0.5f, SDLColor(200, 200, 200))
-    text.drawCentered("按 ESC 返回标题", SCREEN_WIDTH / 2, 280, 0.5f, SDLColor(150, 150, 150))
-}
-
-private fun renderMap(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    // base display: 13x18 grid (original layout)
-    for (i in 0 until 13) {
-        for (j in 0 until 18) {
-            val name = if (i in 1..11 && j in 6..16) "mt_00" else "mt_29"
-            val tex = assets.texture(name) ?: continue
-            renderer.drawTexture(tex, 15 + j * 32, 15 + i * 32)
+    fun takeShot(): Boolean {
+        if (pendingShot) {
+            pendingShot = false
+            return true
         }
+        return false
     }
 
-    // line tiles
-    val t0 = game.nowLine
-    for (i in 0 until 11) {
-        for (j in 0 until 11) {
-            val t = game.tile(t0, i, j)
-            if (t == 0) continue
-            if (t == 97 || t == 98 || t == 99) continue // player spot
-            val tex = assets.texture(baseName(t)) ?: continue
-            val cx = GRID_X + j * 32
-            val cy = GRID_Y + i * 32
-            if (t == 2 || t == 3 || t == 4 || t == 5) {
-                // doors: align the sprite's content center with the cell center
-                val (ax, ay) = doorAnchor(assets, baseName(t))
-                renderer.drawTexture(tex, cx + 16 - ax, cy + 16 - ay)
-            } else {
-                renderer.drawTexture(tex, cx, cy)
+    private fun screenshot() {
+        shot++
+        pendingShot = true
+    }
+
+    private fun key(k: Int) {
+        game.onKeyDown(k)
+        game.onKeyUp(k)
+    }
+
+    fun tick(dt: Int): Boolean {
+        frames++
+        when (phase) {
+            0 -> { // title -> start
+                if (frames == 1) screenshot()
+                if (frames > 40) { key(32); phase = 1; frames = 0 }
+            }
+            7 -> return autoPlay()
+            1 -> { // intro confirm -> 取消 (skip)
+                if (frames > 40) {
+                    key(SDLKeycode.RIGHT)
+                    key(32)
+                    phase = 2
+                    frames = 0
+                }
+            }
+            2 -> { // mode choices -> 极速模式 (instant battles)
+                if (frames > 40) {
+                    key(SDLKeycode.DOWN)
+                    key(32)
+                    phase = 3
+                    frames = 0
+                }
+            }
+            3 -> { // tip text -> advance; apply cheats
+                if (frames == 10) applyCheats()
+                if (frames > 40) { key(32); phase = 4; frames = 0 }
+            }
+            4 -> return autoPlay()
+        }
+        return false
+    }
+
+    private fun applyCheats() {
+        game.hero["hp"] = 999999.0
+        game.hero["hpmax"] = 999999.0
+        game.hero["atk"] = 9999.0
+        game.hero["def"] = 9999.0
+        game.items["yellowKey"] = 99
+        game.items["blueKey"] = 99
+        game.items["redKey"] = 99
+        game.items["book"] = 1
+        game.items["fly"] = 1
+        game.items["cross"] = 1
+        game.items["skill1"] = 1
+        game.items["wand"] = 1
+        game.setFlag("战斗动画", kotlinx.serialization.json.JsonPrimitive(false))
+        game.setFlag("显示详细信息", kotlinx.serialization.json.JsonPrimitive(true))
+        game.setFlag("16", kotlinx.serialization.json.JsonPrimitive(1))
+        game.setFlag("22", kotlinx.serialization.json.JsonPrimitive(1))
+        game.data.floorIds.forEach { game.visitedFloors.add(it) }
+        // take the hidden-floor wands so the MT22 fairy opens the seal
+        game.removeBlock(5, 6, "MT23w")
+        game.removeBlock(7, 6, "MT23e")
+        // enable the MT20 flower door to floor 21 (normally opened by the fairy quest)
+        game.showBlock(6, 8, "MT20")
+        cheatApplied = true
+    }
+
+    /** Is a cell passable for the BFS? (items/enemies/doors/stairs pass) */
+    private fun passable(x: Int, y: Int): Boolean {
+        val floor = game.data.floors[game.floorId] ?: return false
+        if (x < 0 || y < 0 || x >= floor.width || y >= floor.height) return false
+        val b = game.getBlock(x, y)
+        if (b == null) return true
+        val def = b.def ?: return true
+        if (def.cls == "items") return true
+        if (def.cls.startsWith("enemy")) return true
+        if (def.doorInfo != null && def.effectiveTrigger == "openDoor") return true
+        if (def.id == "upFloor" || def.id == "downFloor") return true
+        if (def.script != null) return true
+        return !def.noPass
+    }
+
+    private fun computePath(): Boolean {
+        val floor = game.data.floors[game.floorId] ?: return false
+        if (floor.changeFloor.isEmpty()) return false
+        val myIdx = game.data.floorIds.indexOf(game.floorId)
+        // prefer the changeFloor cell that moves the hero forward
+        val prefer = floor.changeFloor.mapNotNull { (key, cf) ->
+            val to = when (cf.floorId) {
+                ":next" -> game.data.floorIds.getOrNull(myIdx + 1)
+                ":before" -> game.data.floorIds.getOrNull(myIdx - 1)
+                else -> cf.floorId
+            }
+            if (to == null) null else (key to game.data.floorIds.indexOf(to))
+        }
+        // BFS to every reachable changeFloor cell, keep the best target
+        val start = game.locX to game.locY
+        val queue = ArrayDeque<Pair<Int, Int>>()
+        val prev = HashMap<Pair<Int, Int>, Pair<Int, Int>>()
+        queue.add(start)
+        prev[start] = start
+        val reachable = ArrayList<Pair<Int, Int>>()
+        while (queue.isNotEmpty()) {
+            val cur = queue.removeFirst()
+            if (floor.changeFloor.containsKey("${cur.first},${cur.second}")) {
+                // stairs are dead ends: record but do not expand through them
+                reachable.add(cur)
+                continue
+            }
+            for (d in listOf(0 to 1, 0 to -1, 1 to 0, -1 to 0)) {
+                val nx = cur.first + d.first
+                val ny = cur.second + d.second
+                val np = nx to ny
+                if (np !in prev && passable(nx, ny)) {
+                    prev[np] = cur
+                    queue.add(np)
+                }
             }
         }
-    }
-
-    // door open animation (the door tile is removed from the map on step)
-    if (game.openRoom == 1 && game.doorType != 0) {
-        val name = baseName(game.doorType)
-        val frames = if (game.doorType == 115) 5 else 10
-        val frame = ((game.doorTicks / 70).toInt() + 1).coerceAtMost(frames)
-        val tex = assets.texture(name, frame) ?: assets.texture(name)
-        if (tex != null) {
-            val cx = GRID_X + game.lastY * 32
-            val cy = GRID_Y + game.lastX * 32
-            if (game.doorType == 2 || game.doorType == 3 || game.doorType == 4 || game.doorType == 5) {
-                val (ax, ay) = doorAnchor(assets, name)
-                renderer.drawTexture(tex, cx + 16 - ax, cy + 16 - ay)
-            } else {
-                renderer.drawTexture(tex, cx, cy)
+        if (reachable.isEmpty()) return false
+        var target: Pair<Int, Int>? = null
+        var bestIdx = -1
+        for (r in reachable) {
+            val idx = prefer.firstOrNull { it.first == "${r.first},${r.second}" }?.second ?: myIdx
+            if (idx > bestIdx) {
+                bestIdx = idx
+                target = r
             }
         }
-    }
-
-    // player
-    val man = assets.texture("mt_99", 1 + game.playerDir * 17 + game.playerFrame)
-    if (man != null) {
-        renderer.drawTexture(man, GRID_X + game.nowYid * 32, GRID_Y + game.nowXid * 32)
-    }
-
-    // panels
-    renderPanel(renderer, assets, text, game)
-
-    // line banner (floor transition fade)
-    if (game.fadeDir != 0) {
-        renderLineBanner(renderer, text, game)
-    }
-
-    // dialogs and popups
-    if (game.displayText == 1) renderTextPopup(renderer, assets, text, game)
-    if (game.displayKill == 1) renderKillDialog(renderer, assets, text, game)
-    if (game.displayBuy == 1) renderBuy(renderer, assets, text, game)
-    if (game.displayOther == 1) renderOtherList(renderer, assets, game)
-    if (game.displayJump in 1..3) renderJump(renderer, assets, text, game)
-    if (game.displayList in 1..2) renderList(renderer, assets, text, game)
-    renderSay(renderer, assets, game)
-}
-
-/** Content center (frame 1) of a door sprite, used to align doors on their cell. */
-private fun doorAnchor(assets: Assets, name: String): Pair<Int, Int> {
-    val img = assets.decodePng(name, 1)
-    return if (img != null) contentCenter(img) else (16 to 16)
-}
-
-private fun baseName(t: Int): String = when {
-    t < 10 -> "mt_0$t"
-    t == 115 -> "mt_15"
-    t == 120 -> "mt_20"
-    t == 119 || t == 129 || t == 139 -> "mt_00"
-    else -> "mt_$t"
-}
-
-/** Samples the background color of a sprite row (local coords). */
-private fun sampleRow(assets: Assets, name: String, frame: Int, x: Int, y: Int): SDLColor {
-    val img = assets.decodePng(name, frame)
-    return if (img != null) {
-        val c = img.sampleAverage(x - 4, y, x + 4, y + 1)
-        SDLColor(c[0], c[1], c[2])
-    } else {
-        SDLColor(80, 80, 80)
-    }
-}
-
-private fun renderPanel(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    // life panel on the left side — text at 0.5x (~14px, like the original)
-    val lifeTex = assets.texture("mt_other_01") ?: return
-    renderer.drawTexture(lifeTex, 30, 30)
-    val lifeLabels = arrayOf("等级", "生命", "攻击", "防御", "金币", "经验")
-    val lifeValues = arrayOf(game.nowLife.toString(), game.nowHp.toString(), game.nowGong.toString(), game.nowFang.toString(), game.nowMoney.toString(), game.nowMp.toString())
-    val lifeYs = intArrayOf(19, 61, 84, 106, 129, 152)
-    val lifeHs = intArrayOf(26, 18, 18, 18, 18, 18)
-    for (i in lifeLabels.indices) {
-        val bg = sampleRow(assets, "mt_other_01", 1, 62, lifeYs[i] + 8)
-        renderer.fillRect(SDLRect(34, 30 + lifeYs[i], 116, lifeHs[i]), bg)
-        text.draw(lifeLabels[i], 43, 30 + lifeYs[i], 0.5f, SDLColor(0, 0, 0))
-        text.draw(lifeValues[i], 140 - text.measure(lifeValues[i], 0.5f), 30 + lifeYs[i], 0.5f, SDLColor(0, 0, 0))
-    }
-    // keys panel below the life panel
-    val keysTex = assets.texture("mt_other_02") ?: return
-    renderer.drawTexture(keysTex, 30, 210)
-    val keysRows = listOf(
-        Triple("黄钥匙", game.nowYellow.toString(), 12),
-        Triple("蓝钥匙", game.nowBlue.toString(), 40),
-        Triple("红钥匙", game.nowRed.toString(), 79),
-    )
-    for ((label, value, y) in keysRows) {
-        val bg = sampleRow(assets, "mt_other_02", 1, 62, y + 8)
-        renderer.fillRect(SDLRect(34, 210 + y, 116, 18), bg)
-        text.draw(label, 43, 210 + y, 0.5f, SDLColor(0, 0, 0))
-        text.draw(value, 128 - text.measure(value, 0.5f), 210 + y, 0.5f, SDLColor(0, 0, 0))
-        text.draw("个", 142, 210 + y, 0.5f, SDLColor(0, 0, 0))
-    }
-    // floor row
-    val floorBg = sampleRow(assets, "mt_other_02", 1, 62, 118)
-    renderer.fillRect(SDLRect(34, 210 + 112, 116, 18), floorBg)
-    text.draw("第", 43, 210 + 112, 0.5f, SDLColor(0, 0, 0))
-    text.draw(game.nowLine.toString(), 118 - text.measure(game.nowLine.toString(), 0.5f), 210 + 112, 0.5f, SDLColor(0, 0, 0))
-    text.draw("层", 124, 210 + 112, 0.5f, SDLColor(0, 0, 0))
-}
-
-private fun renderLineBanner(renderer: SDLRenderer, text: TextRenderer, game: GameState) {
-    val alpha = (game.lineFade.coerceIn(0f, 1f) * 220).toInt()
-    renderer.blendMode = SDLBlendMode.BLEND
-    renderer.drawColor = SDLColor(0, 0, 0, alpha)
-    renderer.fillRect(SDLRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT))
-    renderer.blendMode = SDLBlendMode.NONE
-    text.drawCentered(game.lineName(), SCREEN_WIDTH / 2, 192, 1f, SDLColor(255, 255, 255))
-}
-
-private fun renderTextPopup(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val box = assets.loadSprite("mt_other_03", 8) ?: return
-    // canvas 573x70, content ~6..563 x 1..66, center (284, 33); drawn at (290,150)
-    renderer.drawTexture(box.texture, 290 - 284, 150 - 33)
-    renderer.drawColor = SDLColor(80, 80, 80)
-    renderer.fillRect(SDLRect(290 - 95, 150 - 33 + 22, 190, 26))
-    text.drawCentered(game.textMessage, 290, 150 - 33 + 25, 0.5f, SDLColor(255, 255, 255))
-}
-
-private fun renderKillDialog(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val box = assets.loadSprite("mt_other_04", 1) ?: return
-    // canvas 556x245, content 0..555 x 2..243, center (278, 122); drawn at (290,150)
-    val dx = 290 - 278
-    val dy = 150 - 122
-    renderer.drawTexture(box.texture, dx, dy)
-    val bg = SDLColor(96, 96, 96)
-    val left = dx + 115
-    val right = dx + 340
-    val rows = listOf(33, 63, 89)
-    for (r in rows) {
-        renderer.fillRect(SDLRect(left, dy + r, 170, 17), bg)
-        renderer.fillRect(SDLRect(right, dy + r, 150, 17), bg)
-    }
-    // cover the baked default digits of the 4th row as well
-    renderer.fillRect(SDLRect(left, dy + 117, 170, 15), bg)
-    renderer.fillRect(SDLRect(right, dy + 117, 150, 15), bg)
-    val labels = listOf("生命值", "攻击力", "防御力")
-    val values = listOf(game.killLeftHp, game.killLeftGong, game.killLeftFang)
-    val rvalues = listOf(game.killRightHp, game.killRightGong, game.killRightFang)
-    for (k in 0 until 3) {
-        text.draw(labels[k], left, dy + rows[k], 0.5f, SDLColor(255, 255, 255))
-        text.draw(values[k].toString(), left + 165 - text.measure(values[k].toString(), 0.5f), dy + rows[k], 0.5f, SDLColor(255, 255, 255))
-        text.draw(labels[k], right, dy + rows[k], 0.5f, SDLColor(255, 255, 255))
-        text.draw(rvalues[k].toString(), right + 140 - text.measure(rvalues[k].toString(), 0.5f), dy + rows[k], 0.5f, SDLColor(255, 255, 255))
-    }
-    // monster and player images, centered in the dialog's image slots
-    val bossTex = assets.texture("mt_${40 + game.nowBossId}")
-    if (bossTex != null) {
-        renderer.drawTexture(bossTex, dx + 21, dy + 41, 64, 64)
-    }
-    val manTex = assets.texture("mt_99", 1)
-    if (manTex != null) {
-        renderer.drawTexture(manTex, dx + 465, dy + 41, 64, 64)
-    }
-}
-
-private fun renderBuy(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val frame = game.buyFrame.coerceIn(1, 9)
-    val box = assets.loadSprite("mt_buy", frame) ?: return
-    // canvas 349x209, content 140..348 x 0..208, center (244, 104); drawn at (380,207)
-    val dx = 380 - 244
-    val dy = 207 - 104
-    renderer.drawTexture(box.texture, dx, dy)
-    if (frame in 2..7) {
-        drawArrow(renderer, dx + 14, dy + 60 + (game.buyCase - 1) * 28)
-    }
-}
-
-private fun drawArrow(renderer: SDLRenderer, x: Int, y: Int) {
-    renderer.drawColor = SDLColor(255, 0, 0)
-    for (i in 0 until 12) {
-        renderer.drawLine(x + i, y + i / 2, x + i, y + 12 - i / 2)
-    }
-}
-
-private fun renderOtherList(renderer: SDLRenderer, assets: Assets, game: GameState) {
-    val frame = game.otherFrame.coerceIn(1, 6)
-    val box = assets.loadSprite("mt_other_list", frame) ?: return
-    // canvas 543x127, content 120..541 x 0..125, center (330, 62); drawn at (360,207)
-    val dx = 360 + 120 - 330
-    val dy = 207 - 62
-    renderer.drawTexture(box.texture, dx, dy)
-}
-
-private fun renderJump(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val box = assets.loadSprite("mt_jump", 1) ?: return
-    // canvas 577x296, content 300..576 x 0..295, center (438, 147); drawn at (367,207)
-    val dx = 367 + 300 - 438
-    val dy = 207 - 147
-    renderer.drawTexture(box.texture, dx, dy)
-    val bg = sampleRow(assets, "mt_jump", 1, 400, 285)
-    renderer.fillRect(SDLRect(dx + 10, dy + 10, 260, 250), bg)
-    for (i in 0 until 20) {
-        val col = i / 7
-        val row = i % 7
-        val x = dx + 20 + col * 88
-        val y = dy + 24 + row * 32
-        text.draw("第 ${i + 1} 层", x, y, 0.5f, SDLColor(0, 0, 0))
-        if (i + 1 == game.jumpSelection) {
-            drawArrow(renderer, x - 16, y + 6)
+        if (target == null) return false
+        println("PT BFS floor=" + game.floorId + " hero=" + game.locX + "," + game.locY + " target=" + target)
+        // reconstruct the path: from the cell next to the hero up to the target
+        val rev = ArrayDeque<Pair<Int, Int>>()
+        var cur: Pair<Int, Int>? = target
+        while (cur != null && cur != start) {
+            rev.addLast(cur)
+            cur = prev[cur]
         }
+        path = ArrayDeque()
+        while (rev.isNotEmpty()) path.addLast(rev.removeLast())
+        return path.isNotEmpty()
     }
-    text.drawCentered("按 2/8 选择  空格 确认  J 取消", dx + 130, dy + 272, 0.5f, SDLColor(0, 0, 0))
-}
 
-private fun renderList(renderer: SDLRenderer, assets: Assets, text: TextRenderer, game: GameState) {
-    val box = assets.loadSprite("mt_list", 1) ?: return
-    // canvas 356x356 full content, center (178, 178); drawn at (367,207)
-    val dx = 367 - 178
-    val dy = 207 - 178
-    renderer.drawTexture(box.texture, dx, dy)
-    val bg = SDLColor(70, 70, 70)
-    renderer.fillRect(SDLRect(dx + 8, dy + 8, 340, 340), bg)
-    val header = listOf("名称" to 60, "生命" to 130, "攻击" to 185, "防御" to 240, "金·经" to 290)
-    for ((h, x) in header) {
-        text.draw(h, dx + x, dy + 24, 0.5f, SDLColor(255, 255, 255))
-    }
-    for ((k, t) in game.monsterList.withIndex()) {
-        val b = game.boss[t - 40] ?: continue
-        val ry = dy + 58 + k * 38
-        val face = assets.texture("mt_$t")
-        if (face != null) renderer.drawTexture(face, dx + 24, ry, 32, 32)
-        text.draw(b.name, dx + 60, ry + 12, 0.5f, SDLColor(255, 255, 255))
-        var hp = b.hp
-        when (t) {
-            60 -> hp += 100
-            52 -> hp += 300
-            50 -> hp += game.nowHp / 3
-            57 -> hp += game.nowHp / 2
+    private var holdKey: Int? = null
+
+    private var lastLog = ""
+    private fun autoPlay(): Boolean {
+        val log = game.floorId + "@" + game.locX + "," + game.locY + " p=" + game.panel + " lock=" + game.lockControl + " ph=" + phase + " t=" + frames + " path=" + path.take(6) + " held=" + holdKey
+        if (log != lastLog) { lastLog = log; println("PT " + log) }
+        // win detection
+        if (game.screen == Game.Screen.GAME_OVER) {
+            println("PLAYTHROUGH WIN: " + (game.gameOverTitle ?: "?"))
+            screenshot()
+            return true
         }
-        text.draw(hp.toString(), dx + 130 + 24 - text.measure(hp.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
-        text.draw(b.gong.toString(), dx + 185 + 24 - text.measure(b.gong.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
-        text.draw(b.fang.toString(), dx + 240 + 24 - text.measure(b.fang.toString(), 0.5f), ry + 12, 0.5f, SDLColor(255, 255, 255))
-        text.draw("${b.money}·${b.exp}", dx + 290, ry + 12, 0.5f, SDLColor(255, 255, 255))
-    }
-    text.drawCentered("按 L 关闭", dx + 178, dy + 332, 0.5f, SDLColor(200, 200, 200))
-}
-
-private fun renderSay(renderer: SDLRenderer, assets: Assets, game: GameState) {
-    val idx = game.sayDialog ?: return
-    if (idx < 0 || game.displaySay[idx] != 1) return
-    val (name, frame) = when (idx) {
-        0 -> if (game.sayStage >= 1) "mt_say_01" to 32 else "mt_say_01" to 1
-        1 -> if (game.sayStage >= 1) "mt_say_02" to 10 else "mt_say_02" to 1
-        2 -> if (game.sayStage >= 1) "mt_say_03" to 10 else "mt_say_03" to 1
-        3 -> if (game.sayStage >= 1) "mt_say_04" to 19 else "mt_say_04" to 1
-        6 -> "mt_say_06" to 1
-        7 -> "mt_say_07" to 1
-        8 -> when (game.sayStage) {
-            1 -> "mt_say_08" to 8
-            2 -> "mt_say_08" to 11
-            else -> "mt_say_08" to 1
+        // floor change: recompute the path
+        if (lastFloor != game.floorId) {
+            println("PT FLOOR " + lastFloor + " -> " + game.floorId + " path=" + path.size + " hero=" + game.locX + "," + game.locY)
+            lastFloor = game.floorId
+            path.clear()
+            releaseHold()
         }
-        else -> return
-    }
-    val box = assets.loadSprite(name, frame) ?: return
-    val img = assets.decodePng(name, frame) ?: return
-    // content-centered at (380, 207)
-    val (cx, cy) = contentCenter(img)
-    renderer.drawTexture(box.texture, 380 - cx, 207 - cy)
-}
-
-/** Computes the center of the opaque content bounding box. */
-private fun contentCenter(img: PngDecoder.PngImage): Pair<Int, Int> {
-    var minX = img.width
-    var minY = img.height
-    var maxX = -1
-    var maxY = -1
-    for (y in 0 until img.height) {
-        var rowHas = false
-        for (x in 0 until img.width) {
-            if ((img.rgba[(y * img.width + x) * 4 + 3].toInt() and 0xFF) > 40) {
-                rowHas = true
-                if (x < minX) minX = x
-                if (x > maxX) maxX = x
+        // dialogue/panel advancing
+        when (game.panel) {
+            Game.Panel.TEXT, Game.Panel.CHOICES, Game.Panel.CONFIRM -> {
+                if (frames % 30 == 0) key(32)
+                return false
+            }
+            Game.Panel.BOOK -> { key(SDLKeycode.X); return false }
+            Game.Panel.FLY -> { key(SDLKeycode.G); return false }
+            Game.Panel.TOOLBOX -> { key(SDLKeycode.T); return false }
+            Game.Panel.SAVE, Game.Panel.LOAD -> { key(SDLKeycode.ESCAPE); return false }
+            Game.Panel.SETTINGS, Game.Panel.HELP -> { key(SDLKeycode.ESCAPE); return false }
+            else -> Unit
+        }
+        if (game.lockControl || game.battle != null || game.heroMoving) return false
+        // special floors: the hidden quest
+        if (game.floorId == "MT20") {
+            // walk to the flower door at (6,8) -> MT21
+            if (game.locX != 6 || game.locY != 8) {
+                bfsTo(6, 8)
             }
         }
-        if (rowHas) {
-            if (y < minY) minY = y
-            if (y > maxY) maxY = y
+        if (game.floorId == "MT21") {
+            if (game.getBlock(6, 2) == null && game.cellsOf("MT21")["6,2"] == null) {
+                // the vampire is dead: fly to MT22 for the hidden quest
+                openFlyTo("MT22")
+                return false
+            }
+        }
+        if (game.floorId == "MT22" || game.floorId == "MT_1") {
+            // fly to the final arena
+            openFlyTo("MT_1")
+            return false
+        }
+        // the normal walk
+        if (path.isEmpty()) {
+            val floor = game.data.floors[game.floorId] ?: return false
+            val cf = floor.changeFloorAt(game.locX, game.locY)
+            if (cf != null) {
+                // the hero is standing on the stairs: trigger the change directly
+                game.changeFloorFromEvent(cf)
+                return false
+            }
+            computePath()
+            return false
+        }
+        val next = path.first()
+        if (game.locX == next.first && game.locY == next.second) {
+            path.removeFirst()
+            releaseHold()
+            return false
+        }
+        // press the direction toward the next cell (re-press every few frames
+        // so battles/doors that clear the held direction don't stall the walk)
+        val k = directionKey(next)
+        if (holdKey != k || frames % 5 == 0) {
+            releaseHold()
+            holdKey = k
+            game.onKeyDown(k)
+        }
+        return false
+    }
+
+    /** BFS path from the hero to (tx, ty). */
+    private fun bfsTo(tx: Int, ty: Int) {
+        val start = game.locX to game.locY
+        if (start == (tx to ty)) { path.clear(); return }
+        val queue = ArrayDeque<Pair<Int, Int>>()
+        val prev = HashMap<Pair<Int, Int>, Pair<Int, Int>>()
+        queue.add(start)
+        prev[start] = start
+        var found = false
+        while (queue.isNotEmpty() && !found) {
+            val cur = queue.removeFirst()
+            for (d in listOf(0 to 1, 0 to -1, 1 to 0, -1 to 0)) {
+                val np = (cur.first + d.first) to (cur.second + d.second)
+                if (np !in prev && passable(np.first, np.second)) {
+                    prev[np] = cur
+                    if (np == (tx to ty)) { found = true; break }
+                    queue.add(np)
+                }
+            }
+        }
+        if (!found) return
+        val rev = ArrayDeque<Pair<Int, Int>>()
+        var cur: Pair<Int, Int>? = tx to ty
+        while (cur != null && cur != start) {
+            rev.addLast(cur)
+            cur = prev[cur]
+        }
+        path = ArrayDeque()
+        while (rev.isNotEmpty()) path.addLast(rev.removeLast())
+    }
+
+    fun tipTextForTest(): String? = game.tip?.text
+
+    private fun releaseHold() {
+        holdKey?.let { game.onKeyUp(it) }
+        holdKey = null
+    }
+
+    private fun directionKey(target: Pair<Int, Int>): Int {
+        val dx = target.first - game.locX
+        val dy = target.second - game.locY
+        return when {
+            dx > 0 -> SDLKeycode.RIGHT
+            dx < 0 -> SDLKeycode.LEFT
+            dy > 0 -> SDLKeycode.DOWN
+            else -> SDLKeycode.UP
         }
     }
-    if (maxX < 0) return img.width / 2 to img.height / 2
-    return (minX + maxX) / 2 to (minY + maxY) / 2
+
+    private fun openFlyTo(floorId: String) {
+        game.openFly()
+        val idx = game.data.floorIds.indexOf(floorId)
+        if (idx >= 0) game.panelSelection = idx
+        key(32)
+    }
+
+    private fun nextQuestFloor(): String {
+        // MT22 (fairy opens MT_1) -> MT_1
+        return when (game.floorId) {
+            "MT22" -> "MT_1"
+            else -> "MT22"
+        }
+    }
 }
 
 /**
  * Headless test driver: scripted key presses + screenshot dumps to BMPs.
- * Used to verify the game logic and rendering without a display.
+ * Drives the game: title -> intro -> mode choice -> prologue dialogue ->
+ * MT0 -> MT1 items/battle.
  */
-class TestScript(private val game: GameState) {
+class TestScript(private val game: Game) {
     private var state = 0
     private var frames = 0
     private var shot = 0
@@ -500,155 +476,103 @@ class TestScript(private val game: GameState) {
     private fun screenshot() {
         shot++
         pendingShot = true
-
     }
 
-    private fun key(k: Int) = game.onKeyDown(k)
+    private fun key(k: Int) {
+        game.onKeyDown(k)
+        game.onKeyUp(k)
+    }
 
-    fun tick(game: GameState, dt: Int): Boolean {
+    fun tick(game: Game, dt: Int): Boolean {
         frames++
         when (state) {
-            0 -> { // title
+            0 -> { // title screen: test UP/DOWN selection
                 if (frames == 1) screenshot()
-                if (frames > 40) {
-                    key(SDLKeycode.SPACE)
-                    game.listFlag = 1
-                    game.jumpFlag = 1
+                if (frames == 30) key(SDLKeycode.DOWN)
+                if (frames == 50) key(SDLKeycode.DOWN)
+                if (frames == 70) screenshot() // selection should be at 读取存档
+                if (frames == 90) key(SDLKeycode.UP)
+                if (frames == 110) key(SDLKeycode.UP) // selection back to 开始游戏
+                if (frames == 130) screenshot()
+                if (frames > 150) {
+                    key(32) // 开始游戏
                     state = 1
                     frames = 0
                 }
             }
-            1 -> { // walk up to the sister
-                if (frames == 20) key(SDLKeycode.UP)
-                if (frames == 40) screenshot() // sister dialog
-                if (frames > 60) {
-                    key(SDLKeycode.SPACE) // keys
+            1 -> { // intro confirm 是否观看片头: select 取消 (skip intro)
+                if (frames == 10) screenshot()
+                if (frames > 40) {
+                    key(SDLKeycode.RIGHT) // 取消
+                    key(32)
                     state = 2
                     frames = 0
                 }
             }
-            2 -> {
+            2 -> { // mode choices 经典模式/极速模式
                 if (frames == 10) screenshot()
                 if (frames > 40) {
-                    key(SDLKeycode.SPACE) // sister leaves
+                    key(32) // 经典模式
                     state = 3
                     frames = 0
                 }
             }
-            3 -> {
+            3 -> { // post-choice tip text
                 if (frames == 10) screenshot()
                 if (frames > 40) {
-                    key(SDLKeycode.UP)
+                    key(32)
                     state = 4
                     frames = 0
                 }
             }
-            4 -> { // walk up to the stairs (9 steps, door at (7,5) opens)
-                if (frames == 20) key(SDLKeycode.UP)
-                if (frames == 80) key(SDLKeycode.UP)
-                if (frames == 140) key(SDLKeycode.UP)
-                if (frames == 200) key(SDLKeycode.UP)
-                if (frames == 260) key(SDLKeycode.UP)
-                if (frames == 320) key(SDLKeycode.UP)
-                if (frames == 380) key(SDLKeycode.UP)
-                if (frames == 440) key(SDLKeycode.UP)
-                if (frames == 500) key(SDLKeycode.UP)
-                if (frames == 560) screenshot() // line transition or 1F
-                if (frames > 620) {
+            4 -> { // walk up through MT0 to the stairs (fairy pre-moved to 5,9)
+                if (frames == 30) key(SDLKeycode.UP)
+                if (frames == 110) key(SDLKeycode.UP)
+                if (frames == 190) key(SDLKeycode.UP)
+                if (frames == 270) key(SDLKeycode.UP)
+                if (frames == 350) key(SDLKeycode.UP)
+                if (frames == 430) key(SDLKeycode.UP)
+                if (frames == 510) key(SDLKeycode.UP)
+                if (frames == 590) key(SDLKeycode.UP)
+                if (frames == 670) key(SDLKeycode.UP) // (6,1) stairs -> MT1
+                if (frames == 700) screenshot()
+                if (frames > 780) {
                     state = 5
                     frames = 0
                 }
             }
-            5 -> { // 1F: grab items left of the arrival (wait out popups)
-                if (frames == 40) key(SDLKeycode.LEFT)
-                if (frames == 140) key(SDLKeycode.LEFT)
-                if (frames == 240) key(SDLKeycode.LEFT)
-                if (frames == 260) screenshot() // items/popups
-                if (frames > 320) {
+            5 -> { // MT1: hold-direction legs to the green slime (6,1)
+                // hold up: opens the red door, reaches (6,8) (wall above)
+                // hold right: to (11,8); hold up: to (11,1); hold left: to the slime
+                val legs = listOf(
+                    30 to SDLKeycode.UP,
+                    210 to SDLKeycode.RIGHT,
+                    390 to SDLKeycode.UP,
+                    570 to SDLKeycode.LEFT,
+                )
+                for ((t, k) in legs) {
+                    if (frames == t) game.onKeyDown(k)
+                    if (frames == t + 60) game.onKeyUp(k)
+                }
+                if (frames == 700) screenshot() // battle panel
+                if (frames > 800) {
                     state = 6
                     frames = 0
                 }
             }
-            6 -> { // walk to the (0,7) monster: right 1, up 3 (red door), right 5, up 7, left 3
-                if (frames == 40) key(SDLKeycode.RIGHT)
-                if (frames == 130) key(SDLKeycode.UP)
-                if (frames == 220) key(SDLKeycode.UP)
-                if (frames == 310) key(SDLKeycode.UP)
-                if (frames == 400) key(SDLKeycode.RIGHT)
-                if (frames == 490) key(SDLKeycode.RIGHT)
-                if (frames == 580) key(SDLKeycode.RIGHT)
-                if (frames == 670) key(SDLKeycode.RIGHT)
-                if (frames == 760) key(SDLKeycode.RIGHT)
-                if (frames == 850) key(SDLKeycode.UP)
-                if (frames == 940) key(SDLKeycode.UP)
-                if (frames == 1030) key(SDLKeycode.UP)
-                if (frames == 1120) key(SDLKeycode.UP)
-                if (frames == 1210) key(SDLKeycode.UP)
-                if (frames == 1300) key(SDLKeycode.UP)
-                if (frames == 1390) key(SDLKeycode.UP)
-                if (frames == 1480) key(SDLKeycode.LEFT)
-                if (frames == 1570) key(SDLKeycode.LEFT)
-                if (frames == 1660) key(SDLKeycode.LEFT)
-                if (frames == 1750) key(SDLKeycode.LEFT)
-                if (frames == 1840) key(SDLKeycode.LEFT)
-                if (frames == 1950) screenshot() // kill dialog mid-battle
-                if (frames == 2100) screenshot() // after battle
-                if (frames > 2200) {
+            6 -> { // classic animated battle (green slime: ~6 turns)
+                if (frames == 150) screenshot() // battle in progress
+                if (frames == 500) screenshot() // battle over
+                if (frames > 700) {
                     state = 7
                     frames = 0
                 }
             }
             7 -> {
-                if (frames == 20) screenshot() // reward text
-                if (frames > 80) {
-                    key(SDLKeycode.L) // monster list on 1F
-                    state = 8
-                    frames = 0
-                }
-            }
-            8 -> {
-                if (frames == 10) screenshot() // list
-                if (frames > 80) {
-                    key(SDLKeycode.L)
-                    state = 9
-                    frames = 0
-                }
-            }
-            9 -> {
-                if (frames == 10) key(SDLKeycode.J) // jump panel
-                if (frames == 20) screenshot()
-                if (frames > 80) {
-                    key(0x38) // '8': move selection
-                    state = 10
-                    frames = 0
-                }
-            }
-            10 -> {
-                if (frames == 10) screenshot()
-                if (frames > 60) {
-                    key(SDLKeycode.SPACE) // confirm jump to line 1
-                    state = 11
-                    frames = 0
-                }
-            }
-            11 -> {
-                if (frames == 20) screenshot() // after jump
-                if (frames > 80) {
-                    key(SDLKeycode.J) // cancel
-                    state = 12
-                    frames = 0
-                }
-            }
-            12 -> {
-                if (frames == 10) screenshot()
-                if (frames > 60) return true
+                if (frames == 20) screenshot() // after battle
+                if (frames > 100) return true
             }
         }
         return false
     }
 }
-
-/**
- * Headless test driver: scripted key presses + screenshot dumps to BMPs.
- * Used to verify the game logic and rendering without a display.
- */
