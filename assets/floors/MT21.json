@@ -33,8 +33,34 @@
    },
    "\t[冥灵魔王,vampire]不，不要这样…………",
    {
-    "type": "function",
-    "function": "function(){\ncore.setEnemy('redKing', 'hp', 30000);\ncore.setEnemy('redKing', 'atk', 2666);\ncore.setEnemy('redKing', 'def', 2666);\ncore.setEnemy('redKing', 'money', 166);\ncore.setEnemy('redKing', 'exp', 166);\n\ncore.setEnemy('darkKnight', 'hp', 2400);\ncore.setEnemy('darkKnight', 'atk', 2612);\ncore.setEnemy('darkKnight', 'def', 2400);\ncore.setEnemy('darkKnight', 'money', 146);\ncore.setEnemy('darkKnight', 'exp', 125);\n\ncore.setEnemy('ghostSkeleton', 'hp', 4999);\ncore.setEnemy('ghostSkeleton', 'atk', 2400);\ncore.setEnemy('ghostSkeleton', 'def', 2266);\ncore.setEnemy('ghostSkeleton', 'money', 140);\ncore.setEnemy('ghostSkeleton', 'exp', 125);\n\ncore.setEnemy('blackMagician', 'hp', 3000);\ncore.setEnemy('blackMagician', 'atk', 2212);\ncore.setEnemy('blackMagician', 'def', 1946);\ncore.setEnemy('blackMagician', 'money', 132);\ncore.setEnemy('blackMagician', 'exp', 116);\n\ncore.setEnemy('vampire', 'hp', 60000);\ncore.setEnemy('vampire', 'atk', 3400);\ncore.setEnemy('vampire', 'def', 3000);\ncore.setEnemy('vampire', 'money', 390);\ncore.setEnemy('vampire', 'exp', 343);\n}"
+    "type": "ops",
+    "data": [
+     {"type":"setEnemy","id":"redKing","name":"hp","value":"30000"},
+     {"type":"setEnemy","id":"redKing","name":"atk","value":"2666"},
+     {"type":"setEnemy","id":"redKing","name":"def","value":"2666"},
+     {"type":"setEnemy","id":"redKing","name":"money","value":"166"},
+     {"type":"setEnemy","id":"redKing","name":"exp","value":"166"},
+     {"type":"setEnemy","id":"darkKnight","name":"hp","value":"2400"},
+     {"type":"setEnemy","id":"darkKnight","name":"atk","value":"2612"},
+     {"type":"setEnemy","id":"darkKnight","name":"def","value":"2400"},
+     {"type":"setEnemy","id":"darkKnight","name":"money","value":"146"},
+     {"type":"setEnemy","id":"darkKnight","name":"exp","value":"125"},
+     {"type":"setEnemy","id":"ghostSkeleton","name":"hp","value":"4999"},
+     {"type":"setEnemy","id":"ghostSkeleton","name":"atk","value":"2400"},
+     {"type":"setEnemy","id":"ghostSkeleton","name":"def","value":"2266"},
+     {"type":"setEnemy","id":"ghostSkeleton","name":"money","value":"140"},
+     {"type":"setEnemy","id":"ghostSkeleton","name":"exp","value":"125"},
+     {"type":"setEnemy","id":"blackMagician","name":"hp","value":"3000"},
+     {"type":"setEnemy","id":"blackMagician","name":"atk","value":"2212"},
+     {"type":"setEnemy","id":"blackMagician","name":"def","value":"1946"},
+     {"type":"setEnemy","id":"blackMagician","name":"money","value":"132"},
+     {"type":"setEnemy","id":"blackMagician","name":"exp","value":"116"},
+     {"type":"setEnemy","id":"vampire","name":"hp","value":"60000"},
+     {"type":"setEnemy","id":"vampire","name":"atk","value":"3400"},
+     {"type":"setEnemy","id":"vampire","name":"def","value":"3000"},
+     {"type":"setEnemy","id":"vampire","name":"money","value":"390"},
+     {"type":"setEnemy","id":"vampire","name":"exp","value":"343"}
+    ]
    },
    {
     "type": "playSound",
@@ -279,8 +305,8 @@
             "text": "存活怪物数量",
             "action": [
              {
-              "type": "function",
-              "function": "function(){\nlet n = 0;\nfor (const f of core.floorIds) {\n\tn += core.searchBlockWithFilter(b => b.event.cls === 'enemys' || b.event.cls === 'enemy48', f).length;\n}\ncore.setFlag('t', n);\n}"
+              "type": "ops",
+              "data": []
              },
              {
               "type": "setValue",
@@ -442,8 +468,8 @@
     "condition": "flag:限时",
     "true": [
      {
-      "type": "function",
-      "function": "function(){\ncore.unregisterAnimationFrame(\"limitTimeFrame\");\ncore.redrawMap();\n}"
+      "type": "ops",
+      "data": []
      },
      {
       "type": "choices",

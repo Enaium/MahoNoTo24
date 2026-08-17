@@ -298,8 +298,8 @@
           "text": "存活怪物数量",
           "action": [
            {
-            "type": "function",
-            "function": "function(){\nlet n = 0;\nfor (const f of core.floorIds) {\n\tn += core.searchBlockWithFilter(b => b.event.cls === 'enemys' || b.event.cls === 'enemy48', f).length;\n}\ncore.setFlag('t', n);\n}"
+            "type": "ops",
+            "data": []
            },
            {
             "type": "setValue",

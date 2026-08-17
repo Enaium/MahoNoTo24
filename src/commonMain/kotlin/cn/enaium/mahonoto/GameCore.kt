@@ -322,7 +322,9 @@ class Game(
         val n = when (number) {
             is Int -> number
             is String -> data.blocksByNumber.entries.firstOrNull { it.value.id == number }?.key ?: return
-            is JsonPrimitive -> number.content.toIntOrNull() ?: return
+            is JsonPrimitive -> number.content.toIntOrNull()
+                ?: data.blocksByNumber.entries.firstOrNull { it.value.id == number.content }?.key
+                ?: return
             else -> return
         }
         val cells = cellsOf(f)
@@ -962,7 +964,11 @@ class Game(
     }
 
     private fun battleFuncAction(kind: String, damage: Double): JsonElement =
-        jsonObj("type" to "function", "function" to "function(){\n$kind(${damage.toLong()})\n}")
+        jsonObj(
+            "type" to "battleHit",
+            "side" to (if (kind == "battleHeroHit") "hero" else "enemy"),
+            "damage" to damage,
+        )
 
     fun battleHeroHit(damage: Double) {
         val b = battle ?: return
@@ -1030,7 +1036,7 @@ class Game(
         } else {
             val popup = "得到金币数 ${money.toLong()} 经验值 ${exp.toLong()} ！"
             todo.add(jsonObj("type" to "playSound", "name" to "战斗胜利"))
-            todo.add(jsonObj("type" to "function", "async" to true, "function" to "function(){ core.plugin.showTextPopup(\"$popup\") }"))
+            todo.add(jsonObj("type" to "tip", "text" to popup))
         }
 
         // debuffs
@@ -1177,7 +1183,7 @@ class Game(
         eventX = null
         eventY = null
         unlockControl()
-        tip = null
+        // tip 不在此清除，交由 updateTip 自然淡出
         if (pendingIntroStart) {
             pendingIntroStart = false
             val floor = data.firstData.floorId
@@ -1288,8 +1294,14 @@ class Game(
                 frames.clear()
                 return false
             }
-            "function" -> {
-                execFunction(act)
+            "ops" -> {
+                // 操作数组：依次执行 data 中的每个子动作（复用商店购买同款动作系统）
+                act.arr("data")?.toList()?.let { insertAction(JsonArray(it), frame.x, frame.y) }
+                return false
+            }
+            "battleHit" -> {
+                val dmg = act.num("damage") ?: 0.0
+                if (act.str("side") == "hero") battleHeroHit(dmg) else battleEnemyHit(dmg)
                 return false
             }
             "changeFloor" -> {
@@ -1390,6 +1402,12 @@ class Game(
                 return false
             }
             "setEnemyOnPoint" -> return false
+            "addFlag" -> {
+                val name = expr.replaceText(act.str("name") ?: "")
+                val value = expr.evalNum(act.str("value") ?: "0")
+                setFlag(name, JsonPrimitive(getFlagNum(name) + value))
+                return false
+            }
             "setGlobalFlag" -> {
                 val name = act.str("name") ?: return false
                 flags[name] = expr.toJson(expr.eval(act.str("value") ?: "0"))
@@ -1560,80 +1578,6 @@ class Game(
             "money" -> enemy.money = value
             "exp" -> enemy.exp = value
             "point" -> enemy.point = value
-        }
-    }
-
-    /** Maps the embedded "function" JS bodies used by this game's data. */
-    fun execFunction(act: JsonObject) {
-        val body = act.str("function") ?: return
-        val normalized = body.replace("\\s+".toRegex(), "").replace("\"", "'")
-
-        fun hasKey(k: String) = normalized.contains(k)
-
-        when {
-            hasKey("core.addItem('yellowKey')") && hasKey("core.addItem('blueKey')") && hasKey("core.addItem('redKey')") &&
-                hasKey("core.hideBlock") -> {
-                items["yellowKey"] = itemCount("yellowKey") + 1
-                items["blueKey"] = itemCount("blueKey") + 1
-                items["redKey"] = itemCount("redKey") + 1
-                hideBlock(6, 9, "MT0")
-                setBlock("fairy", 5, 9, "MT0")
-            }
-            hasKey("core.addItem('yellowKey')") && hasKey("core.addItem('blueKey')") && hasKey("core.addItem('redKey')") -> {
-                items["yellowKey"] = itemCount("yellowKey") + 1
-                items["blueKey"] = itemCount("blueKey") + 1
-                items["redKey"] = itemCount("redKey") + 1
-            }
-            hasKey("core.addItem('book'") -> items["book"] = itemCount("book") + 1
-            hasKey("core.addItem('cross'") -> items["cross"] = itemCount("cross") + 1
-            hasKey("core.addItem('fly'") -> items["fly"] = itemCount("fly") + 1
-            hasKey("core.addItem('icePickaxe'") -> items["icePickaxe"] = itemCount("icePickaxe") + 1
-            hasKey("core.setEnemy(") -> execSetEnemyBatch(normalized)
-            hasKey("core.searchBlockWithFilter") -> {
-                setFlag("t", JsonPrimitive(countAliveEnemies()))
-            }
-            hasKey("battleHeroHit(") -> {
-                Regex("battleHeroHit\\((\\d+)\\)").find(normalized)?.let { battleHeroHit(it.groupValues[1].toDouble()) }
-            }
-            hasKey("battleEnemyHit(") -> {
-                Regex("battleEnemyHit\\((\\d+)\\)").find(normalized)?.let { battleEnemyHit(it.groupValues[1].toDouble()) }
-            }
-            hasKey("core.plugin.showTextPopup") -> {
-                Regex("showTextPopup\\(\"([^\"]*)\"\\)").find(normalized)?.let { drawTip(it.groupValues[1], null) }
-            }
-            hasKey("core.addFlag(") -> {
-                // MT46 altar only
-                Regex("core\\.addFlag\\('([^']+)'\\s*,\\s*([^)]+)\\)").find(normalized)?.let { m ->
-                    val name = expr.replaceText(m.groupValues[1])
-                    val v = evalEffectExpr(m.groupValues[2])
-                    setFlag(name, JsonPrimitive(getFlagNum(name) + v))
-                }
-            }
-            // help-menu toggles / stats / no-ops
-            hasKey("core.status.hero.flags.__auto__") ||
-                hasKey("core.plugin.showTradeSummary") ||
-                hasKey("core.status.route.push('help')") ||
-                hasKey("core.unregisterAnimationFrame") ||
-                hasKey("core.setGlobal(") ||
-                hasKey("core.chooseReplayFile") ||
-                hasKey("core.control.checkBgm") -> Unit
-            else -> Unit // unhandled function body ignored
-        }
-    }
-
-    private fun execSetEnemyBatch(normalized: String) {
-        Regex("core\\.setEnemy\\('([^']+)'\\s*,\\s*'([^']+)'\\s*,\\s*([^)]+)\\)").findAll(normalized).forEach { mm ->
-            val id = mm.groupValues[1]
-            val field = mm.groupValues[2]
-            val value = mm.groupValues[3].trim().toDoubleOrNull() ?: return@forEach
-            val enemy = enemyData[id] ?: return@forEach
-            when (field) {
-                "hp" -> enemy.hp = value
-                "atk" -> enemy.atk = value
-                "def" -> enemy.def = value
-                "money" -> enemy.money = value
-                "exp" -> enemy.exp = value
-            }
         }
     }
 
@@ -2104,9 +2048,13 @@ class Game(
         val cellsObj = JsonObject(
             data.floorIds.mapNotNull { f ->
                 val cells = cellsByFloor[f] ?: return@mapNotNull null
+                val floorDef = data.floors[f]
                 val dirty = LinkedHashMap<String, JsonElement>()
                 for (b in cells.values) {
-                    if (b.number != originalNumber(f, b.x, b.y) || b.disable) {
+                    val origDisabled = (floorDef?.events?.get("${b.x},${b.y}") as? JsonObject)
+                        ?.let { it["enable"]?.let { e -> e is JsonPrimitive && e.content == "false" } }
+                        ?: false
+                    if (b.number != originalNumber(f, b.x, b.y) || b.disable != origDisabled) {
                         dirty["${b.x},${b.y}"] = jsonObj("n" to b.number, "d" to b.disable)
                     }
                 }

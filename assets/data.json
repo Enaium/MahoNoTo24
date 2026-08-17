@@ -392,8 +392,8 @@
               "condition": "(!core.isReplaying())",
               "true": [
                {
-                "type": "function",
-                "function": "function(){\ncore.chooseReplayFile()\n}"
+                "type": "ops",
+                "data": []
                }
               ]
              }
@@ -499,8 +499,8 @@
           "condition": "(!core.isReplaying())",
           "true": [
            {
-            "type": "function",
-            "function": "function(){\ncore.chooseReplayFile()\n}"
+            "type": "ops",
+            "data": []
            }
           ]
          }
@@ -523,8 +523,8 @@
     "type": "clearMap"
    },
    {
-    "type": "function",
-    "function": "function(){\ncore.control.checkBgm()\n}"
+    "type": "ops",
+    "data": []
    },
    {
     "type": "if",
@@ -541,8 +541,8 @@
       "text": "难度选择：作为样例，这里只提供了一个显示选择项。"
      },
      {
-      "type": "function",
-      "function": "function(){\nvar choices = [];\nmain.levelChoose.forEach(function (one) {\n\tchoices.push({\n\t\t\"text\": one.title || '',\n\t\t\"action\": [\n\t\t\t{ \"type\": \"function\", \"function\": \"function() { core.status.hard = '\" + (one.name || '') + \"'; }\" }\n\t\t]\n\t});\n})\ncore.insertAction({ \"type\": \"choices\", \"choices\": choices });\n}"
+      "type": "ops",
+      "data": []
      },
      {
       "type": "comment",
@@ -631,8 +631,38 @@
     ],
     "no": [
      {
-      "type": "function",
-      "function": "function(){\ncore.addItem('yellowKey');\ncore.addItem('blueKey');\ncore.addItem('redKey');\ncore.hideBlock(6, 9, 'MT0');\ncore.setBlock('fairy', 5, 9, 'MT0')\n}"
+      "type": "ops",
+      "data": [
+       {
+        "type": "setValue",
+        "name": "item:yellowKey",
+        "operator": "+=",
+        "value": "1"
+       },
+       {
+        "type": "setValue",
+        "name": "item:blueKey",
+        "operator": "+=",
+        "value": "1"
+       },
+       {
+        "type": "setValue",
+        "name": "item:redKey",
+        "operator": "+=",
+        "value": "1"
+       },
+       {
+        "type": "hide",
+        "loc": [6, 9],
+        "floorId": "MT0"
+       },
+       {
+        "type": "setBlock",
+        "number": "fairy",
+        "loc": [5, 9],
+        "floorId": "MT0"
+       }
+      ]
      }
     ]
    },
@@ -711,8 +741,8 @@
         "value": "0"
        },
        {
-        "type": "function",
-        "function": "function(){\ncore.setGlobal(\"limitTimeLeft\", 16 * 60 * 1000);\ncore.setGlobal(\"limitTimeUp\", false);\ncore.setGlobal(\"limitTimePause\", false);\ncore.setGlobal(\"__limitTimeLast__\", -1);\n\ncore.registerAnimationFrame(\n\t\"limitTimeFrame\",\n\ttrue,\n\tfunction (timestamp) {\n\t\tif (core.getGlobal(\"limitTimeUp\") || core.setGlobal(\"limitTimePause\", false)) return;\n\n\t\tconst last = core.getGlobal(\"__limitTimeLast__\");\n\t\tif (last == null) {\n\t\t\tcore.setGlobal(\"__limitTimeLast__\", timestamp);\n\t\t\treturn;\n\t\t}\n\n\t\tconst delta = timestamp - last;\n\t\tcore.setGlobal(\"__limitTimeLast__\", timestamp);\n\n\t\t// 扣减时间\n\t\tcore.setGlobal(\n\t\t\t\"limitTimeLeft\",\n\t\t\tcore.getGlobal(\"limitTimeLeft\") - delta\n\t\t);\n\n\t\tif (core.getGlobal(\"limitTimeLeft\") <= 0) {\n\t\t\tcore.setGlobal(\"limitTimeLeft\", 0);\n\t\t\tcore.setGlobal(\"limitTimeUp\", true);\n\t\t}\n\n\t\t// ===== 绘制 =====\n\t\tconst ctx = core.createCanvas(\n\t\t\t\"limitTime\",\n\t\t\t0, 0,\n\t\t\t200, 40,\n\t\t\t200\n\t\t);\n\n\t\tcore.clearMap(\"limitTime\");\n\n\t\tconst t = core.getGlobal(\"limitTimeLeft\");\n\t\tconst sec = Math.floor(t / 1000);\n\t\tconst m = Math.floor(sec / 60);\n\t\tconst s = sec % 60;\n\t\tconst text =\n\t\t\tString(m).padStart(2, \"0\") +\n\t\t\t\":\" +\n\t\t\tString(s).padStart(2, \"0\");\n\n\t\tlet color = \"#FFD700\";\n\t\tif (t <= 60 * 1000) color = \"#FF4444\";\n\t\tif (core.getGlobal(\"limitTimeUp\")) color = \"#888888\";\n\t\tcore.fillBoldText(\"limitTime\", \"TIME \" + text, 10, 20, '#FFF', '#000', \"bold 18px Arial\");\n\t}\n);\n}"
+        "type": "ops",
+        "data": []
        }
       ]
      }

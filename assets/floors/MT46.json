@@ -256,8 +256,11 @@
             "value": "1"
            },
            {
-            "type": "function",
-            "function": "function(){\ncore.addFlag(`${core.getFlag('ratio')}区购买hp`, 4000);\ncore.addFlag(`${core.getFlag('ratio')}区购买hp次数`, 1);\n}"
+            "type": "ops",
+            "data": [
+             {"type":"addFlag","name":"${flag:ratio}区购买hp","value":"4000"},
+             {"type":"addFlag","name":"${flag:ratio}区购买hp次数","value":"1"}
+            ]
            }
           ],
           "false": [
@@ -299,8 +302,11 @@
             "value": "1"
            },
            {
-            "type": "function",
-            "function": "function(){\ncore.addFlag(`${core.getFlag('ratio')}区购买atk`, 20);\ncore.addFlag(`${core.getFlag('ratio')}区购买atk次数`, 1);\n}"
+            "type": "ops",
+            "data": [
+             {"type":"addFlag","name":"${flag:ratio}区购买atk","value":"20"},
+             {"type":"addFlag","name":"${flag:ratio}区购买atk次数","value":"1"}
+            ]
            }
           ],
           "false": [
@@ -342,8 +348,11 @@
             "value": "1"
            },
            {
-            "type": "function",
-            "function": "function(){\ncore.addFlag(`${core.getFlag('ratio')}区购买def`, 20);\ncore.addFlag(`${core.getFlag('ratio')}区购买def次数`, 1);\n}"
+            "type": "ops",
+            "data": [
+             {"type":"addFlag","name":"${flag:ratio}区购买def","value":"20"},
+             {"type":"addFlag","name":"${flag:ratio}区购买def次数","value":"1"}
+            ]
            }
           ],
           "false": [

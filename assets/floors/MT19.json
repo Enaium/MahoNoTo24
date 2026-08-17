@@ -79,8 +79,14 @@
     "name": "dialogue.mp3"
    },
    {
-    "type": "function",
-    "function": "function(){\ncore.setEnemy('vampire', 'hp', 45000);\ncore.setEnemy('vampire', 'atk', 2550);\ncore.setEnemy('vampire', 'def', 2250);\ncore.setEnemy('vampire', 'money', 312);\ncore.setEnemy('vampire', 'exp', 275);\n}"
+    "type": "ops",
+    "data": [
+     {"type":"setEnemy","id":"vampire","name":"hp","value":"45000"},
+     {"type":"setEnemy","id":"vampire","name":"atk","value":"2550"},
+     {"type":"setEnemy","id":"vampire","name":"def","value":"2250"},
+     {"type":"setEnemy","id":"vampire","name":"money","value":"312"},
+     {"type":"setEnemy","id":"vampire","name":"exp","value":"275"}
+    ]
    }
   ]
  },

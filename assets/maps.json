@@ -500,8 +500,43 @@
   "id": "wizard",
   "event": [
    {
-    "type": "function",
-    "function": "function(){\ncore.status.hero.lv += 3\ncore.status.hero.hp += 3000\ncore.status.hero.atk += 30\ncore.status.hero.def += 30\nif (core.hasFlag('战斗动画')) {\n\tcore.insertAction({ \"type\": \"function\", \"async\": true, \"function\": `function(){ core.plugin.showTextPopup(\"得到 大飞羽 等级提升三级 ！\") }` });\n} else {\n\tcore.drawTip(\"得到 大飞羽 等级提升三级 ！\", \"wizard\");\n}\n}"
+    "type": "ops",
+    "data": [
+     {
+      "type": "setValue",
+      "name": "status:lv",
+      "operator": "+=",
+      "value": "3"
+     },
+     {
+      "type": "setValue",
+      "name": "status:hp",
+      "operator": "+=",
+      "value": "3000"
+     },
+     {
+      "type": "setValue",
+      "name": "status:atk",
+      "operator": "+=",
+      "value": "30"
+     },
+     {
+      "type": "setValue",
+      "name": "status:def",
+      "operator": "+=",
+      "value": "30"
+     },
+     {
+      "type": "if",
+      "condition": "flag:战斗动画",
+      "true": [
+       { "type": "tip", "text": "得到 大飞羽 等级提升三级 ！" }
+      ],
+      "false": [
+       { "type": "tip", "text": "得到 大飞羽 等级提升三级 ！", "icon": "wizard" }
+      ]
+     }
+    ]
    },
    {
     "type": "hide",

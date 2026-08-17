@@ -458,8 +458,15 @@
     "text": "先恢复一个魔杖（因为使用道具必须消耗一个）"
    },
    {
-    "type": "function",
-    "function": "function(){\ncore.addItem('lifeWand', 1);\n}"
+    "type": "ops",
+    "data": [
+     {
+      "type": "setValue",
+      "name": "item:lifeWand",
+      "operator": "+=",
+      "value": "1"
+     }
+    ]
    },
    {
     "type": "playSound",

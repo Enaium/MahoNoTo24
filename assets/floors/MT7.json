@@ -33,8 +33,10 @@
      "name": "constants.mp3"
     },
     {
-     "type": "function",
-     "function": "function(){\ncore.addItem('cross',1)\n}"
+     "type": "ops",
+     "data": [
+      {"type":"setValue","name":"item:cross","operator":"+=","value":"1"}
+     ]
     },
     {
      "type": "setText",

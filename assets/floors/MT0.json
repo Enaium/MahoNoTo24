@@ -377,8 +377,12 @@
     "time": 0
    },
    {
-    "type": "function",
-    "function": "function(){\ncore.addItem('yellowKey');\ncore.addItem('blueKey');\ncore.addItem('redKey');\n}"
+    "type": "ops",
+    "data": [
+     {"type":"setValue","name":"item:yellowKey","operator":"+=","value":"1"},
+     {"type":"setValue","name":"item:blueKey","operator":"+=","value":"1"},
+     {"type":"setValue","name":"item:redKey","operator":"+=","value":"1"}
+    ]
    }
   ],
   "5,9": [

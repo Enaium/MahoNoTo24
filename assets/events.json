@@ -184,8 +184,8 @@
   ],
   "游戏帮助": [
    {
-    "type": "function",
-    "function": "function(){\ncore.status.route.push('help')\n}"
+    "type": "ops",
+    "data": []
    },
    {
     "type": "while",
@@ -279,8 +279,8 @@
           "condition": "1",
           "data": [
            {
-            "type": "function",
-            "function": "function(){\nif (!core.status.hero.flags.__auto__) core.status.hero.flags.__auto__ = { battle: false, item: false, wall: false }\n}"
+            "type": "ops",
+            "data": []
            },
            {
             "type": "choices",
@@ -291,8 +291,8 @@
               "condition": "!core.status.hero.flags.__auto__.battle",
               "action": [
                {
-                "type": "function",
-                "function": "function(){\ncore.status.hero.flags.__auto__.battle = true;\n}"
+                "type": "ops",
+                "data": []
                },
                {
                 "type": "tip",
@@ -305,8 +305,8 @@
               "condition": "core.status.hero.flags.__auto__.battle",
               "action": [
                {
-                "type": "function",
-                "function": "function(){\ncore.status.hero.flags.__auto__.battle = false;\n}"
+                "type": "ops",
+                "data": []
                },
                {
                 "type": "tip",
@@ -319,8 +319,8 @@
               "condition": "!core.status.hero.flags.__auto__.item",
               "action": [
                {
-                "type": "function",
-                "function": "function(){\ncore.status.hero.flags.__auto__.item = 'nopotion';\n}"
+                "type": "ops",
+                "data": []
                },
                {
                 "type": "tip",
@@ -333,8 +333,8 @@
               "condition": "core.status.hero.flags.__auto__.item == 'nopotion'",
               "action": [
                {
-                "type": "function",
-                "function": "function(){\ncore.status.hero.flags.__auto__.item = 'all';\n}"
+                "type": "ops",
+                "data": []
                },
                {
                 "type": "tip",
@@ -347,8 +347,8 @@
               "condition": "core.status.hero.flags.__auto__.item == 'all' || core.status.hero.flags.__auto__.item === true",
               "action": [
                {
-                "type": "function",
-                "function": "function(){\ncore.status.hero.flags.__auto__.item = false;\n}"
+                "type": "ops",
+                "data": []
                },
                {
                 "type": "tip",
@@ -375,8 +375,8 @@
         "text": "交易统计",
         "action": [
          {
-          "type": "function",
-          "function": "function(){\ncore.plugin.showTradeSummary()\n}"
+          "type": "ops",
+          "data": []
          }
         ]
        },

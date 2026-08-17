@@ -40,8 +40,10 @@
      "name": "constants.mp3"
     },
     {
-     "type": "function",
-     "function": "function(){\ncore.addItem('icePickaxe',1)\n}"
+     "type": "ops",
+     "data": [
+      {"type":"setValue","name":"item:icePickaxe","operator":"+=","value":"1"}
+     ]
     },
     {
      "type": "setText",

@@ -401,6 +401,7 @@ class BlockDef(val number: Int, val event: BlockEventDef) {
         event.trigger?.let { if (it != "null") return it }
         if (cls.startsWith("enemy")) return "battle"
         if (cls == "items") return "getItem"
+        if (cls.startsWith("npc") && event.event !is JsonNull) return "action"
         return null
     }
 
