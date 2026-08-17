@@ -51,7 +51,8 @@ class Assets(val root: String) {
             val srcOff = srcRow * s.pitch + sx.coerceIn(0, s.width - 1) * bpp
             val dstOff = y * sw * bpp
             for (x in 0 until sw * bpp) {
-                rgba[dstOff + x] = if (sx + (x / bpp) < s.width) px[srcOff + x] else 0
+                val pxIdx = srcOff + x
+                rgba[dstOff + x] = if (pxIdx < px.size) px[pxIdx] else 0
             }
         }
         val tex = r.createTexture(

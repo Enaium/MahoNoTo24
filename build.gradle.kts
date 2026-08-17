@@ -12,7 +12,6 @@ version = "1.0-SNAPSHOT"
 repositories {
     mavenCentral()
     google()
-    mavenLocal()
 }
 
 kotlin {
@@ -26,6 +25,12 @@ kotlin {
     }
 
     macosArm64 {
+        binaries.executable {
+            entryPoint = "cn.enaium.mahonoto.main"
+        }
+    }
+
+    linuxX64 {
         binaries.executable {
             entryPoint = "cn.enaium.mahonoto.main"
         }

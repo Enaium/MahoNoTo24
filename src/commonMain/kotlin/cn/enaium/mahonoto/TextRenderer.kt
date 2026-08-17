@@ -51,16 +51,44 @@ class TextRenderer(private val renderer: SDLRenderer) {
             "/System/Library/Fonts/Hiragino Sans GB.ttc",
             "/System/Library/Fonts/STHeiti Light.ttc",
             "/System/Library/Fonts/Supplemental/Songti.ttc",
-            // Linux: Noto CJK, WenQuanYi, Arphic
+            // Linux: Noto CJK (various paths and naming conventions)
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf",
+            "/usr/share/fonts/noto-cjk/NotoSansCJKsc-Regular.otf",
+            "/usr/share/fonts/noto/NotoSansSC-Regular.otf",
+            // Linux: Adobe Source Han Sans (思源黑体)
+            "/usr/share/fonts/adobe-source-han-sans/SourceHanSansCN-Regular.otf",
+            "/usr/share/fonts/adobe-source-han-sans/SourceHanSans-Regular.otf",
+            "/usr/share/fonts/adobe-source-han-sans/SourceHanSansCN-Bold.otf",
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/google-noto-cjk/NotoSansSC-Regular.otf",
+            // Linux: WenQuanYi (文泉驿)
             "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
             "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc",
+            "/usr/share/fonts/wqy-microhei/wqy-microhei.ttc",
+            "/usr/share/fonts/wqy-zenhei/wqy-zenhei-bitmap.ttc",
+            // Linux: Arphic (文鼎)
             "/usr/share/fonts/truetype/arphic/uming.ttc",
+            "/usr/share/fonts/arphic-uming/uming.ttc",
+            "/usr/share/fonts/truetype/arphic/ukai.ttc",
+            "/usr/share/fonts/arphic-ukai/ukai.ttc",
+            // Linux: Droid (Android fonts)
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/usr/share/fonts/droid-fonts/DroidSansFallbackFull.ttf",
+            "/usr/share/fonts/truetype/droid/DroidSansJapanese.ttf",
+            // Linux: Other common CJK fonts
+            "/usr/share/fonts/truetype/cjk/uming.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto-cjk/NotoSansCJK-Regular.ttc",
             // Windows: 微软雅黑 / 黑体 / 宋体
             "C:/Windows/Fonts/msyh.ttc",
             "C:/Windows/Fonts/simhei.ttf",
             "C:/Windows/Fonts/simsun.ttc",
+            "C:/Windows/Fonts/msyhbd.ttc",
         )
         for (path in candidates) {
             val font = try {
