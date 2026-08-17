@@ -141,6 +141,8 @@ data class FloorDef(
     fun eventList(x: Int, y: Int): List<JsonElement>? = when (val e = events["$x,$y"]) {
         null, is JsonNull -> null
         is JsonArray -> e.toList()
+        // event wrapper format: {"trigger": ..., "enable": ..., "data": [actions]}
+        is JsonObject -> (e["data"] as? JsonArray)?.toList() ?: listOf(e)
         else -> listOf(e)
     }
 

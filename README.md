@@ -1,4 +1,4 @@
-# 魔塔 (MahoNoTo)
+# 魔塔 (魔法の塔)
 
 《魔塔》经典 Flash 游戏的 Kotlin Multiplatform + SDL3 移植版。
 
@@ -26,7 +26,8 @@
 - 道具/状态：钥匙、宝石、血瓶、装备、毒/衰/咒状态、圣水等
 - 存档/读档（文件存储，FileKit）、怪物图鉴（X）、楼层传送（G）、道具栏（T）、
   快捷商店（V）、帮助面板、鼠标操作
-- 纯 Kotlin PNG 解码器，不依赖 SDL_image；中文 UI 文字由开发期生成的字形图集渲染
+- 图片加载使用 [sdl-image-kmp](https://github.com/Enaium/sdl-image-kmp)（SDL_image）；
+  中文 UI 文字由 [sdl-ttf-kmp](https://github.com/Enaium/sdl-ttf-kmp)（SDL_ttf 3）实时渲染
 
 ## 目录结构
 
@@ -38,7 +39,7 @@ src/
 assets/
   images/ materials/ tilesets/ animates/ sounds_wav/ bgms_wav/ floors/  # h5mota 版数据与资源
   data.json maps.json enemys.json items.json icons.json events.json      # 游戏数据（JSON）
-  fonts/               # 黑体字体 + 生成的文字图集（atlas.png + chars.txt）
+  fonts/               # 数字（number.ttf）+ 代码（FiraCode.ttf）字体；中文字体使用系统字体
 ```
 
 ## 构建与运行
@@ -66,14 +67,6 @@ java -jar build/libs/MahoNoTo-1.0-SNAPSHOT-all.jar assets
 
 `--test --full` 为通关自测模式：以满属性（高血量/攻击/防御、全钥匙、
 全楼层传送）自动走完 21 层主塔并验证结局流程。
-
-### 重新生成文字图集（开发用）
-
-```bash
-./gradlew generateAtlas
-```
-
-图集会扫描 `assets/` 中全部 JSON 数据，确保对话/商店等所有文本字形可用。
 
 ## 操作
 

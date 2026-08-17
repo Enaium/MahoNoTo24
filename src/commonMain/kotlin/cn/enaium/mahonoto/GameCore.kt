@@ -297,10 +297,10 @@ class Game(
     private fun initBlock(x: Int, y: Int, number: Int, floor: String): Block {
         val def = data.blocksByNumber[number]?.let { BlockDef(number, it) }
         val block = Block(x, y, number, def)
-        // default disabled from floor events (enable:false)
-        val ev = data.floors[floor]?.eventList(x, y)
-        val first = ev?.firstOrNull() as? JsonObject
-        if (first?.has("enable") == true && first.bool("enable") == false) block.disable = true
+        // default disabled from floor events (enable:false) — check the raw
+        // event object, not the unwrapped action list
+        val rawEv = data.floors[floor]?.events?.get("$x,$y") as? JsonObject
+        if (rawEv?.has("enable") == true && rawEv.bool("enable") == false) block.disable = true
         return block
     }
 
@@ -365,9 +365,9 @@ class Game(
         return out
     }
 
-    fun countAliveEnemies(): Int {
+    fun countAliveEnemies(floor: String? = null): Int {
         var n = 0
-        for (f in data.floorIds) {
+        for (f in if (floor != null) listOf(floor) else data.floorIds) {
             for ((_, b) in cellsOf(f)) {
                 if (!b.disable && b.def != null && (b.def!!.cls == "enemys" || b.def!!.cls == "enemy48")) n++
             }
@@ -448,9 +448,10 @@ class Game(
         val tx = locX + delta.first
         val ty = locY + delta.second
         if (noPass(tx, ty)) {
-            // trigger the blocked cell without moving
+            // trigger the blocked cell without moving; keep holding the
+            // direction through doors/events so the walk resumes afterwards
             trigger(tx, ty)
-            if (battle != null || panel != null || frames.isNotEmpty()) stopMove()
+            if (battle != null || panel != null) stopMove()
             return
         }
         moveFromX = locX
@@ -496,7 +497,7 @@ class Game(
 
         // contact event list (floor events table)
         val floorEvents = data.floors[floorId]?.eventList(x, y)
-        if (floorEvents != null) {
+        if (floorEvents != null && floorEvents.isNotEmpty()) {
             startEvents(floorEvents, x, y)
             return
         }
@@ -1301,7 +1302,7 @@ class Game(
                         time = act.num("time"),
                     )
                 )
-                return true
+                return false
             }
             "changePos" -> {
                 val loc = act.arr("loc")
@@ -1583,10 +1584,10 @@ class Game(
                 items["blueKey"] = itemCount("blueKey") + 1
                 items["redKey"] = itemCount("redKey") + 1
             }
-            hasKey("core.addItem('book')") -> items["book"] = itemCount("book") + 1
-            hasKey("core.addItem('cross')") -> items["cross"] = itemCount("cross") + 1
-            hasKey("core.addItem('fly')") -> items["fly"] = itemCount("fly") + 1
-            hasKey("core.addItem('icePickaxe')") -> items["icePickaxe"] = itemCount("icePickaxe") + 1
+            hasKey("core.addItem('book'") -> items["book"] = itemCount("book") + 1
+            hasKey("core.addItem('cross'") -> items["cross"] = itemCount("cross") + 1
+            hasKey("core.addItem('fly'") -> items["fly"] = itemCount("fly") + 1
+            hasKey("core.addItem('icePickaxe'") -> items["icePickaxe"] = itemCount("icePickaxe") + 1
             hasKey("core.setEnemy(") -> execSetEnemyBatch(normalized)
             hasKey("core.searchBlockWithFilter") -> {
                 setFlag("t", JsonPrimitive(countAliveEnemies()))
@@ -2160,12 +2161,12 @@ class Game(
             (diff["money"] as? JsonPrimitive)?.doubleOrNull?.let { e.money = it }
             (diff["exp"] as? JsonPrimitive)?.doubleOrNull?.let { e.exp = it }
         }
-        // cells
+        // cells: rebuild the full original floor, then apply the saved changes
         cellsByFloor.clear()
         floorSeen.clear()
         floorId = ""
         (o.obj("cells") ?: JsonObject(emptyMap())).forEach { (f, v) ->
-            val cells = cellsByFloor.getOrPut(f) { HashMap() }
+            val cells = cellsOf(f) // full map from the floor data
             (v.asObj() ?: return@forEach).forEach { (xy, info) ->
                 val pos = xy.split(",")
                 if (pos.size == 2) {
@@ -2184,6 +2185,8 @@ class Game(
         direction = o.str("dir") ?: "down"
         frames.clear()
         panel = null
+        // a loaded game always shows the status bar (startNewGame resets it)
+        showStatusBar = true
         changeFloorTo(o.str("floorId") ?: "MT0", null, locX to locY, 0, fromLoad = true)
     }
 
@@ -2464,6 +2467,23 @@ class Game(
     }
 
     private fun onTitleKey(keycode: Int) {
+        // panels opened from the title menu (load / save)
+        if (panel != null) {
+            when (panel) {
+                Panel.SAVE, Panel.LOAD -> {
+                    when (keycode) {
+                        SDLKeycode.UP -> { panelSelection = (panelSelection - 1).coerceIn(0, 5); playSound("光标移动") }
+                        SDLKeycode.DOWN -> { panelSelection = (panelSelection + 1).coerceIn(0, 5); playSound("光标移动") }
+                        SDLKeycode.SPACE, SDLKeycode.RETURN -> {
+                            if (panel == Panel.SAVE) doSave(panelSelection + 1) else doLoad(panelSelection + 1)
+                        }
+                        SDLKeycode.ESCAPE, SDLKeycode.X -> { panel = null; playSound("取消") }
+                    }
+                }
+                else -> Unit
+            }
+            return
+        }
         when (keycode) {
             SDLKeycode.UP -> {
                 setFlag("keycode", JsonPrimitive(38))
@@ -2597,9 +2617,10 @@ class Game(
                 return
             }
             Panel.TOOLBOX -> {
+                val n = max(1, toolboxItems().size)
                 when (keycode) {
-                    SDLKeycode.UP, SDLKeycode.LEFT -> { panelSelection--; playSound("光标移动") }
-                    SDLKeycode.DOWN, SDLKeycode.RIGHT -> { panelSelection++; playSound("光标移动") }
+                    SDLKeycode.UP, SDLKeycode.LEFT -> { panelSelection = (panelSelection - 1 + n) % n; playSound("光标移动") }
+                    SDLKeycode.DOWN, SDLKeycode.RIGHT -> { panelSelection = (panelSelection + 1) % n; playSound("光标移动") }
                     SDLKeycode.SPACE, SDLKeycode.RETURN -> useToolboxItem(panelSelection)
                     SDLKeycode.ESCAPE, SDLKeycode.X -> { panel = null; playSound("取消") }
                 }
@@ -2607,8 +2628,8 @@ class Game(
             }
             Panel.SAVE, Panel.LOAD -> {
                 when (keycode) {
-                    SDLKeycode.UP -> { panelSelection--; playSound("光标移动") }
-                    SDLKeycode.DOWN -> { panelSelection++; playSound("光标移动") }
+                    SDLKeycode.UP -> { panelSelection = (panelSelection - 1).coerceIn(0, 5); playSound("光标移动") }
+                    SDLKeycode.DOWN -> { panelSelection = (panelSelection + 1).coerceIn(0, 5); playSound("光标移动") }
                     SDLKeycode.SPACE, SDLKeycode.RETURN -> {
                         if (panel == Panel.SAVE) doSave(panelSelection + 1) else doLoad(panelSelection + 1)
                     }

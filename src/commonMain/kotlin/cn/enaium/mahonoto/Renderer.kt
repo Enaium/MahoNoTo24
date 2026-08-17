@@ -56,6 +56,10 @@ class Renderer(
         const val TOOL_X = 135
         const val TOOL_Y = 419
         const val TOOL_H = 41
+        // Dialog panels are centered on the 640px window (center 320):
+        // mapX() + 208 is the map area center (389), so a panel origin of
+        // 320 - 208 keeps ox + 208 == 320.
+        const val PANEL_X = 112
     }
 
     private val borderColor = intArrayOf(250, 118, 0)
@@ -102,7 +106,8 @@ class Renderer(
                     renderer.fillRect(SDLFRect((ox + x).toFloat(), (oy + y).toFloat(), w.toFloat(), h.toFloat()), styleToColor(a.arr("style")))
                 }
                 "fillBoldText" -> {
-                    val x = a.num("x")?.toInt() ?: 0
+                    val xRaw = a.str("x") ?: ""
+                    val x = if (xRaw.contains("__PIXELS__")) 320 else (a.num("x")?.toInt() ?: 0)
                     val y = a.num("y")?.toInt() ?: 0
                     val t = game.expr.replaceText(a.str("text") ?: "")
                     val font = a.str("font") ?: ""
@@ -114,12 +119,35 @@ class Renderer(
                 else -> Unit
             }
         }
-        // selector
+        // selector: sized from the current menu item's text so it centers
         val sel = game.getFlagNum("selection").toInt()
-        val sx = 245
-        val sy = 261 + 40 * sel
-        drawWindowSelector(ox + sx, oy + sy, 120, 40)
+        val items = game.titleUiActions.mapNotNull { a ->
+            val o = a as? JsonObject ?: return@mapNotNull null
+            if (o.str("type") != "fillBoldText") return@mapNotNull null
+            val t = game.expr.replaceText(o.str("text") ?: "")
+            if (t.isBlank()) return@mapNotNull null
+            val size = Regex("(\\d+)px").find(o.str("font") ?: "")?.groupValues?.get(1)?.toInt() ?: 25
+            val y = o.num("y")?.toInt() ?: 0
+            if (y < 250) return@mapNotNull null // the menu box starts at y=250
+            MenuItem(t, o.num("x")?.toInt() ?: 0, y, size)
+        }
+        val item = items.getOrNull(sel)
+        if (item != null) {
+            drawMenuSelector(item.text, item.size, ox + item.x, oy + item.y)
+        } else {
+            drawWindowSelector(ox + 245, oy + 261 + 40 * sel, 120, 40)
+        }
+        // panels opened from the title menu (load / save)
+        if (game.panel != null) {
+            when (game.panel) {
+                Game.Panel.SAVE -> renderSaveLoadPanel(true)
+                Game.Panel.LOAD -> renderSaveLoadPanel(false)
+                else -> Unit
+            }
+        }
     }
+
+    private class MenuItem(val text: String, val x: Int, val y: Int, val size: Int)
 
     private fun styleToColor(style: JsonArray?, def: SDLColor = SDLColor(255, 255, 255)): SDLColor {
         if (style == null || style.size < 3) return def
@@ -276,9 +304,12 @@ class Renderer(
         if (game.heroMoving) {
             frame = if (game.heroLeg) 1 else 3
             val progress = min(1.0, game.moveT)
-            val delta = game.scan[dir] ?: (0 to 0)
-            offX = delta.first * progress * 32
-            offY = delta.second * progress * 32
+            // use the actual step delta (the held direction may have
+            // changed mid-step, e.g. turning into a wall while walking)
+            val dx = (game.moveToX - game.moveFromX).toDouble()
+            val dy = (game.moveToY - game.moveFromY).toDouble()
+            offX = dx * progress * 32
+            offY = dy * progress * 32
         } else {
             frame = 0
         }
@@ -568,7 +599,7 @@ class Renderer(
     // ============================ choices / confirm ============================
 
     private fun renderChoicesPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val titleInfo = game.parseTitle(game.expr.replaceText(game.panelData["text"] as? String ?: ""))
         val choices = game.panelData["choices"] as? List<JsonElement> ?: return
@@ -639,13 +670,13 @@ class Renderer(
         if (choices.isNotEmpty() && game.panelSelection in choices.indices) {
             val co = choices[game.panelSelection] as? JsonObject ?: return
             val t = game.expr.replaceText(co.str("text") ?: "")
-            val len = text.measure(t, 17)
-            drawWindowSelector(ox + 208 - len / 2 - 5, oy + choiceTop + 32 * game.panelSelection - 20, len + 10, 28)
+            val textCenter = ox + 208 + (if (co.str("icon") != null) 14 else 0)
+            drawMenuSelector(t, 17, textCenter, oy + choiceTop + 32 * game.panelSelection)
         }
     }
 
     private fun renderConfirmPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val t = game.expr.replaceText(game.panelData["text"] as? String ?: "")
         val lines = t.split('\n')
@@ -660,9 +691,8 @@ class Renderer(
         }
         drawStroked("确定", ox + 208 - 38, oy + bottom - 35, 17, SDLColor(255, 255, 255), SDLColor(0, 0, 0), centered = true)
         drawStroked("取消", ox + 208 + 38, oy + bottom - 35, 17, SDLColor(255, 255, 255), SDLColor(0, 0, 0), centered = true)
-        val len = text.measure("确定", 17)
-        val strokeLeft = 208 + (76 * game.panelSelection - 38) - len / 2 - 5
-        drawWindowSelector(ox + strokeLeft, oy + bottom - 35 - 22, len + 10, 28)
+        val label = if (game.panelSelection == 0) "确定" else "取消"
+        drawMenuSelector(label, 17, ox + 208 + (76 * game.panelSelection - 38), oy + bottom - 35)
     }
 
     // ============================ book ============================
@@ -732,7 +762,7 @@ class Renderer(
     // ============================ fly ============================
 
     private fun renderFlyPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val floorIds = game.data.floorIds
         val left = 48
@@ -761,9 +791,12 @@ class Renderer(
                 visited -> SDLColor(255, 255, 255)
                 else -> SDLColor(110, 110, 110)
             }
-            drawStroked("${i + 1}  $name", ox + x, oy + y, 16, color, SDLColor(0, 0, 0))
+            val t = "${i + 1}  $name"
+            // center the text in the grid cell
+            val cx = x + 65
+            drawStroked(t, ox + cx, oy + y, 16, color, SDLColor(0, 0, 0), centered = true)
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + x - 14, oy + y - 8, text.measure("${i + 1}  $name", 16) + 18, 24)
+                drawMenuSelector(t, 16, ox + cx, oy + y)
             }
         }
         drawStroked("G/X 关闭", ox + 208, oy + bottom - 18, 14, SDLColor(221, 221, 221), SDLColor(0, 0, 0), centered = true)
@@ -772,7 +805,7 @@ class Renderer(
     // ============================ toolbox ============================
 
     private fun renderToolboxPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val ids = game.toolboxItems()
         val left = 60
@@ -793,7 +826,15 @@ class Renderer(
             drawStroked(name, ox + left + 60, oy + y + 6, 16, SDLColor(255, 255, 255), SDLColor(0, 0, 0))
             drawStroked("x$count", ox + left + width - 40, oy + y + 6, 16, SDLColor(255, 255, 255), SDLColor(0, 0, 0))
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + left + 12, oy + y, width - 40, 28)
+                // the row content spans from the item icon to the end of the
+                // count text, so the box width cannot come from a single
+                // string: measure the span (icon x .. xN end) + 20, x - 10
+                val t = "$name x$count"
+                val spanLeft = ox + left + 20
+                val spanRight = ox + left + width - 40 + text.measure("x$count", 16)
+                val w = spanRight - spanLeft + 20
+                val h = text.measureHeight(t, 16) + 10
+                drawWindowSelector(spanLeft - 10, oy + y + 6 - h / 2, w, h)
             }
         }
         drawStroked("X 关闭", ox + 208, oy + top + height - 18, 14, SDLColor(221, 221, 221), SDLColor(0, 0, 0), centered = true)
@@ -802,7 +843,7 @@ class Renderer(
     // ============================ save / load ============================
 
     private fun renderSaveLoadPanel(isSave: Boolean) {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val slots = game.panelData["slots"] as? List<Pair<Int, String>> ?: emptyList()
         val left = 80
@@ -816,9 +857,10 @@ class Renderer(
             val info = slots.firstOrNull { it.first == i + 1 }?.second
             val label = if (info != null) info else "（空）"
             val color = if (info != null) SDLColor(255, 255, 255) else SDLColor(130, 130, 130)
-            drawStroked("${i + 1}. $label", ox + left + 20, oy + y + 6, 16, color, SDLColor(0, 0, 0))
+            val t = "${i + 1}. $label"
+            drawStroked(t, ox + 208, oy + y + 6, 16, color, SDLColor(0, 0, 0), centered = true)
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + left + 12, oy + y, width - 24, 28)
+                drawMenuSelector(t, 16, ox + 208, oy + y + 6)
             }
         }
         drawStroked("X 关闭", ox + 208, oy + top + height - 18, 14, SDLColor(221, 221, 221), SDLColor(0, 0, 0), centered = true)
@@ -827,7 +869,7 @@ class Renderer(
     // ============================ input ============================
 
     private fun renderInputPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val hint = game.panelData["hint"] as? String ?: ""
         val buf = game.panelData["buf"] as? String ?: ""
@@ -847,7 +889,7 @@ class Renderer(
     // ============================ settings ============================
 
     private fun renderSettingsPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val options = listOf(
             "移动音效 [${if (game.getFlagBool("移动音效", true)) "开" else "关"}]",
@@ -862,7 +904,7 @@ class Renderer(
         for ((i, o) in options.withIndex()) {
             drawStroked(o, ox + 208, oy + top + 56 + i * 32, 16, SDLColor(255, 255, 255), SDLColor(0, 0, 0), centered = true)
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + 208 - 70, oy + top + 44 + i * 32, 140, 28)
+                drawMenuSelector(o, 16, ox + 208, oy + top + 56 + i * 32)
             }
         }
     }
@@ -870,7 +912,7 @@ class Renderer(
     // ============================ help ============================
 
     private fun renderHelpPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val options = listOf(
             "方向键：移动（按住连续行走）",
@@ -887,7 +929,7 @@ class Renderer(
         for ((i, o) in options.withIndex()) {
             drawStroked(o, ox + 208, oy + top + 56 + i * 32, 14, SDLColor(255, 255, 255), SDLColor(0, 0, 0), centered = true)
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + 208 - 110, oy + top + 44 + i * 32, 220, 28)
+                drawMenuSelector(o, 14, ox + 208, oy + top + 56 + i * 32)
             }
         }
     }
@@ -895,7 +937,7 @@ class Renderer(
     // ============================ rank ============================
 
     private fun renderRankPanel() {
-        val ox = mapX()
+        val ox = PANEL_X
         val oy = mapY()
         val ranks = game.panelData["ranks"] as? List<String> ?: emptyList()
         val left = 80
@@ -908,7 +950,7 @@ class Renderer(
         for ((i, r) in shown.withIndex()) {
             drawStroked(r, ox + 208, oy + top + 56 + i * 32, 16, SDLColor(255, 255, 255), SDLColor(0, 0, 0), centered = true)
             if (i == game.panelSelection) {
-                drawWindowSelector(ox + 208 - 90, oy + top + 44 + i * 32, 180, 28)
+                drawMenuSelector(r, 16, ox + 208, oy + top + 56 + i * 32)
             }
         }
     }
@@ -1032,6 +1074,17 @@ class Renderer(
             assets.region("images", skin, 176, 16, 16, seg)?.let { renderer.drawTexture(it, x + w - 16, y + dy, 16, seg) }
             dy += 32
         }
+    }
+
+    /**
+     * Draws the selection box sized from [str] metrics and centered on the
+     * text at (cx, cy): the box grows +20px wide / +10px tall, so its origin
+     * is shifted by -10 / -5 to keep it centered on the text.
+     */
+    private fun drawMenuSelector(str: String, size: Int, cx: Int, cy: Int) {
+        val w = text.measure(str, size) + 20
+        val h = text.measureHeight(str, size) + 10
+        drawWindowSelector(cx - w / 2, cy - h / 2, w, h)
     }
 
     private fun drawWindowSelector(x: Int, y: Int, w: Int, h: Int) {

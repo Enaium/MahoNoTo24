@@ -1,66 +1,66 @@
 package cn.enaium.mahonoto
 
-import cn.enaium.mahonoto.Fio
-import cn.enaium.mahonoto.PngDecoder
-import cn.enaium.sdl.SDLPixelFormat
 import cn.enaium.sdl.SDLRenderer
 import cn.enaium.sdl.SDLScaleMode
+import cn.enaium.sdl.SDLSurface
 import cn.enaium.sdl.SDLTexture
 import cn.enaium.sdl.SDLTextureAccess
+import cn.enaium.sdl.image.SDLImage
 
 /**
- * Loads h5mota material sheets / images and caches cropped SDL textures.
- * Sheet crop key: "imageName@sx,sy,sw,sh".
+ * Loads h5mota material sheets / images (via SDL_image) and caches cropped
+ * SDL textures. Sheet crop key: "imageName@sx,sy,sw,sh".
  */
 class Assets(val root: String) {
 
     private var renderer: SDLRenderer? = null
 
-    private val decoded = HashMap<String, PngDecoder.PngImage>()
+    private val surfaces = HashMap<String, SDLSurface>()
     private val textures = HashMap<String, SDLTexture>()
 
     fun setRenderer(r: SDLRenderer) { renderer = r }
 
     fun assetsDir(): String = root
 
-    /** Decodes (and caches) a png under project dirs: images/, materials/. */
-    fun decode(dir: String, name: String): PngDecoder.PngImage? {
+    /** Loads (and caches) a surface under project dirs: images/, materials/. */
+    private fun surfaceFor(dir: String, name: String): SDLSurface? {
         val key = "$dir/$name"
-        decoded[key]?.let { return it }
-        val data = Fio.readBytes("$root/$dir/$name") ?: return null
-        return try {
-            val img = PngDecoder.decode(data)
-            decoded[key] = img
-            img
+        surfaces[key]?.let { return it }
+        val s = try {
+            SDLImage.load("$root/$dir/$name")
         } catch (t: Throwable) {
             null
-        }
+        } ?: return null
+        surfaces[key] = s
+        return s
     }
-
-    fun image(name: String): PngDecoder.PngImage? = decode("images", name)
-    fun material(name: String): PngDecoder.PngImage? = decode("materials", name)
 
     /** Loads a sheet region into an SDL texture (cached). */
     fun region(dir: String, name: String, sx: Int, sy: Int, sw: Int, sh: Int): SDLTexture? {
-        val img = decode(dir, name) ?: return null
+        val s = surfaceFor(dir, name) ?: return null
         val key = "$dir/$name@$sx,$sy,$sw,$sh"
         textures[key]?.let { return it }
         val r = renderer ?: return null
-        val rgba = ByteArray(sw * sh * 4)
+        val bpp = 4
+        val rgba = ByteArray(sw * sh * bpp)
+        // read the surface pixels once (native get-pixels copies the whole
+        // surface on every call, which is extremely slow in a loop)
+        val px = s.pixels
         for (y in 0 until sh) {
-            val src = ((sy + y).coerceIn(0, img.height - 1)) * img.width * 4 + sx.coerceIn(0, img.width - 1) * 4
-            val dst = y * sw * 4
-            for (x in 0 until sw * 4) {
-                rgba[dst + x] = if (sx + (x / 4) < img.width) img.rgba[src + x] else 0
+            val srcRow = (sy + y).coerceIn(0, s.height - 1)
+            val srcOff = srcRow * s.pitch + sx.coerceIn(0, s.width - 1) * bpp
+            val dstOff = y * sw * bpp
+            for (x in 0 until sw * bpp) {
+                rgba[dstOff + x] = if (sx + (x / bpp) < s.width) px[srcOff + x] else 0
             }
         }
         val tex = r.createTexture(
-            format = SDLPixelFormat.RGBA32,
+            format = s.format,
             access = SDLTextureAccess.STATIC,
             width = sw,
             height = sh,
         )
-        tex.update(null, rgba, sw * 4)
+        tex.update(null, rgba, sw * bpp)
         tex.scaleMode = SDLScaleMode.NEAREST
         textures[key] = tex
         return tex
@@ -68,13 +68,26 @@ class Assets(val root: String) {
 
     /** Whole image as texture (cached by name). */
     fun imageTexture(dir: String, name: String): SDLTexture? {
-        val img = decode(dir, name) ?: return null
-        return region(dir, name, 0, 0, img.width, img.height)
+        val s = surfaceFor(dir, name) ?: return null
+        val key = "$dir/$name"
+        textures[key]?.let { return it }
+        val r = renderer ?: return null
+        val tex = r.createTexture(
+            format = s.format,
+            access = SDLTextureAccess.STATIC,
+            width = s.width,
+            height = s.height,
+        )
+        tex.update(null, s.pixels, s.pitch)
+        tex.scaleMode = SDLScaleMode.NEAREST
+        textures[key] = tex
+        return tex
     }
 
     fun close() {
         textures.values.forEach { it.close() }
         textures.clear()
-        decoded.clear()
+        surfaces.values.forEach { it.close() }
+        surfaces.clear()
     }
 }

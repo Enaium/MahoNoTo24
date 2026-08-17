@@ -1,122 +1,152 @@
 package cn.enaium.mahonoto
 
+import cn.enaium.sdl.SDLBlendMode
 import cn.enaium.sdl.SDLColor
 import cn.enaium.sdl.SDLFRect
-import cn.enaium.sdl.SDLPixelFormat
 import cn.enaium.sdl.SDLRenderer
 import cn.enaium.sdl.SDLScaleMode
 import cn.enaium.sdl.SDLTexture
 import cn.enaium.sdl.SDLTextureAccess
-import kotlin.math.roundToInt
+import cn.enaium.sdl.ttf.SDLTTF
+import cn.enaium.sdl.ttf.SDLTTFFont
 
 /**
- * Bitmap font: glyphs rendered at dev time into a grid atlas (white on
- * transparent). Text is composed by blitting glyph cells with per-char
- * advances read from chars.txt.
+ * Text rendering via sdl-ttf-kmp (SDL_ttf 3.x bindings).
  *
- * The atlas is pre-scaled (nearest-neighbour) to each used pixel size so
- * glyphs are drawn at exact 1:1 scale — the software renderer dims
- * textures at fractional scales.
+ * Every draw call rasterizes the string with FreeType into an alpha
+ * surface, uploads it into a texture and blits it at 1:1 scale. Textures
+ * are cached per (text, size, color, alpha) so static strings cost one
+ * rasterization each; the cache is bounded and drops the least recently
+ * used entries.
  */
 class TextRenderer(private val renderer: SDLRenderer) {
 
-    companion object {
-        const val CELL = 32
-        const val COLS = 16
+    private var baseFont: SDLTTFFont? = null
+    private val fontCache = HashMap<Int, SDLTTFFont>() // sizePx -> font copy
+
+    private val textureCache = HashMap<String, SDLTexture>()
+    private val cacheOrder = ArrayDeque<String>()
+
+    private fun putTexture(key: String, tex: SDLTexture) {
+        if (textureCache.containsKey(key)) return
+        textureCache[key] = tex
+        cacheOrder.addLast(key)
+        while (cacheOrder.isNotEmpty() && textureCache.size > MAX_CACHE) {
+            val oldest = cacheOrder.removeFirst()
+            textureCache.remove(oldest)?.close()
+        }
     }
 
-    private val glyphs = HashMap<Char, Int>() // char -> index
-    private val advances = HashMap<Char, Int>()
-    private var atlas: PngDecoder.PngImage? = null
-    private val scaledAtlases = HashMap<Int, SDLTexture>()
+    fun load() {
+        if (!SDLTTF.init()) error("TTF_Init failed: ${SDLTTF.error()}")
+        val fontPath = resolveCjkFont() ?: error("no CJK-capable system font found")
+        baseFont = SDLTTF.openFont(fontPath, 16f)
+    }
 
-    fun load(fontDir: String) {
-        val chars = Fio.readText("$fontDir/chars.txt") ?: return
-        var idx = 0
-        for (line in chars.lines()) {
-            if (line.isBlank()) continue
-            val c = line[0]
-            val adv = line.substringAfter(' ').trim().toIntOrNull() ?: CELL
-            glyphs[c] = idx
-            advances[c] = adv
-            idx++
+    /** Probes well-known system fonts and returns the first CJK-capable one. */
+    private fun resolveCjkFont(): String? {
+        val candidates = listOf(
+            // macOS
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            "/System/Library/Fonts/Supplemental/Songti.ttc",
+            // Linux: Noto CJK, WenQuanYi, Arphic
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+            // Windows: 微软雅黑 / 黑体 / 宋体
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "C:/Windows/Fonts/simsun.ttc",
+        )
+        for (path in candidates) {
+            val font = try {
+                SDLTTF.openFont(path, 12f)
+            } catch (t: Throwable) {
+                continue // missing or unreadable
+            }
+            val hasCjk = font.hasGlyph('文'.code)
+            font.close()
+            if (hasCjk) return path
         }
-        val data = Fio.readBytes("$fontDir/atlas.png") ?: return
-        atlas = PngDecoder.decode(data)
+        return null
     }
 
     fun close() {
-        scaledAtlases.values.forEach { it.close() }
-        scaledAtlases.clear()
-        atlas = null
+        textureCache.values.forEach { it.close() }
+        textureCache.clear()
+        fontCache.values.forEach { it.close() }
+        fontCache.clear()
+        baseFont?.close()
+        baseFont = null
+        SDLTTF.quit()
     }
 
-    /** Returns a texture with glyphs at exactly [sizePx] pixels (scaled cache). */
-    private fun textureFor(sizePx: Int): SDLTexture? {
-        val base = atlas ?: return null
-        return scaledAtlases.getOrPut(sizePx) {
-            if (sizePx == CELL) {
-                makeTexture(base)
-            } else {
-                makeTexture(scaleNearest(base, sizePx))
+    /**
+     * A font copy rasterized at [sizePx] * [SUPER_SAMPLE] so the text is
+     * downscaled to its final size on screen (supersampling); the glyphs
+     * keep far more detail than rasterizing at 1x.
+     */
+    private fun fontFor(sizePx: Int): SDLTTFFont? {
+        val base = baseFont ?: return null
+        return fontCache.getOrPut(sizePx) {
+            SDLTTF.copyFont(base).also {
+                it.size = sizePx * SUPER_SAMPLE.toFloat()
             }
         }
     }
 
-    private fun makeTexture(img: PngDecoder.PngImage): SDLTexture {
+    fun hasGlyph(c: Char): Boolean = baseFont?.hasGlyph(c.code) == true
+
+    /** The rendered width of [text] at the given pixel size. */
+    fun measure(text: String, sizePx: Int): Int {
+        val f = fontFor(sizePx) ?: return 0
+        return ((f.getStringSize(text)?.x ?: 0) + SUPER_SAMPLE / 2) / SUPER_SAMPLE
+    }
+
+    /** The rendered height of [text] at the given pixel size. */
+    fun measureHeight(text: String, sizePx: Int): Int {
+        val f = fontFor(sizePx) ?: return 0
+        return ((f.getStringSize(text)?.y ?: 0) + SUPER_SAMPLE / 2) / SUPER_SAMPLE
+    }
+
+    /** Rasterizes [text] into a cached texture. */
+    private fun textureFor(text: String, sizePx: Int, color: SDLColor, alpha: Float = 1f): SDLTexture? {
+        val font = fontFor(sizePx) ?: return null
+        val key = "$sizePx|${color.r},${color.g},${color.b}|$alpha|$text"
+        textureCache[key]?.let { return it }
+        val surface = SDLTTF.renderTextBlended(
+            font,
+            text,
+            SDLColor(color.r, color.g, color.b, (color.a * alpha).toInt()),
+        ) ?: return null
         val tex = renderer.createTexture(
-            format = SDLPixelFormat.RGBA32,
+            format = surface.format,
             access = SDLTextureAccess.STATIC,
-            width = img.width,
-            height = img.height,
+            width = surface.width,
+            height = surface.height,
         )
-        tex.update(null, img.rgba, img.width * 4)
-        tex.blendMode = cn.enaium.sdl.SDLBlendMode.BLEND
-        tex.scaleMode = SDLScaleMode.NEAREST
+        tex.update(null, surface.pixels, surface.pitch)
+        tex.blendMode = SDLBlendMode.BLEND
+        tex.scaleMode = SDLScaleMode.LINEAR
+        surface.close()
+        putTexture(key, tex)
         return tex
     }
 
-    /** Nearest-neighbour scaling of the whole atlas so glyphs are [sizePx]. */
-    private fun scaleNearest(img: PngDecoder.PngImage, sizePx: Int): PngDecoder.PngImage {
-        val nw = img.width * sizePx / CELL
-        val nh = img.height * sizePx / CELL
-        val out = ByteArray(nw * nh * 4)
-        for (y in 0 until nh) {
-            val sy = y * CELL / sizePx
-            for (x in 0 until nw) {
-                val sx = x * CELL / sizePx
-                val s = (sy * img.width + sx) * 4
-                val d = (y * nw + x) * 4
-                out[d] = img.rgba[s]
-                out[d + 1] = img.rgba[s + 1]
-                out[d + 2] = img.rgba[s + 2]
-                out[d + 3] = img.rgba[s + 3]
-            }
-        }
-        return PngDecoder.PngImage(nw, nh, out)
-    }
-
-    fun hasGlyph(c: Char): Boolean = glyphs.containsKey(c)
-
-    /** Total advance width of [text] at the given pixel size. */
-    fun measure(text: String, sizePx: Int): Int {
-        var w = 0
-        for (c in text) {
-            val adv = advances[c] ?: CELL
-            w += (adv * sizePx) / CELL
-        }
-        return w
+    private fun dstRect(tex: SDLTexture, x: Int, y: Int): SDLFRect {
+        val size = tex.size
+        return SDLFRect(x.toFloat(), y.toFloat(), size.x / SUPER_SAMPLE, size.y / SUPER_SAMPLE)
     }
 
     /** Draws [text] with its top-left at (x, y), glyphs [sizePx] pixels tall. */
     fun draw(text: String, x: Int, y: Int, sizePx: Int, color: SDLColor = SDLColor(255, 255, 255)) {
-        val tex = textureFor(sizePx) ?: return
-        val old = currentColor
-        tex.colorMod = color
-        currentColor = color
-        drawRaw(tex, text, x, y, sizePx)
-        tex.colorMod = old
-        currentColor = old
+        if (text.isEmpty()) return
+        val tex = textureFor(text, sizePx, color) ?: return
+        renderer.renderTexture(tex, dst = dstRect(tex, x, y))
     }
 
     /** Draws [text] centered horizontally at (cx, y). */
@@ -126,7 +156,8 @@ class TextRenderer(private val renderer: SDLRenderer) {
 
     /**
      * Draws [text] with a [stroke]-colored outline (like the engine's
-     * fillBoldText): offset passes then the fill color on top.
+     * fillBoldText): offset passes then the fill color on top. The given y
+     * is the visual center of the text.
      */
     fun drawStroked(
         text: String,
@@ -138,45 +169,22 @@ class TextRenderer(private val renderer: SDLRenderer) {
         alpha: Float = 1f,
     ) {
         if (text.isEmpty()) return
-        val tex = textureFor(sizePx) ?: return
-        val old = currentColor
-        // outline passes
-        val strokeColor = SDLColor(stroke.r, stroke.g, stroke.b, (stroke.a * alpha).toInt())
-        tex.colorMod = strokeColor
-        currentColor = strokeColor
+        val strokeTex = textureFor(text, sizePx, stroke, alpha) ?: return
+        // center vertically on the actual rendered (logical) height
+        val ty = (y - strokeTex.size.y / SUPER_SAMPLE / 2).toInt()
         for (dy in -1..1) {
             for (dx in -1..1) {
                 if (dx == 0 && dy == 0) continue
-                drawRaw(tex, text, x + dx, y + dy, sizePx)
+                renderer.renderTexture(strokeTex, dst = dstRect(strokeTex, x + dx, ty + dy))
             }
         }
-        // fill pass
-        val fillColor = SDLColor(color.r, color.g, color.b, (color.a * alpha).toInt())
-        tex.colorMod = fillColor
-        currentColor = fillColor
-        drawRaw(tex, text, x, y, sizePx)
-        tex.colorMod = old
-        currentColor = old
+        val fillTex = textureFor(text, sizePx, color, alpha) ?: return
+        renderer.renderTexture(fillTex, dst = dstRect(fillTex, x, ty))
     }
 
-    private fun drawRaw(tex: SDLTexture, text: String, x: Int, y: Int, sizePx: Int) {
-        var cx = x
-        // the glyph content sits in the middle of the atlas cell; shift up
-        // so the given y is roughly the visual center of the text
-        val cy = y - sizePx / 2 - 4
-        for (c in text) {
-            val idx = glyphs[c] ?: continue
-            // the scaled atlas cells are sizePx wide/tall
-            val sx = (idx % COLS) * sizePx
-            val sy = (idx / COLS) * sizePx
-            renderer.renderTexture(
-                tex,
-                src = SDLFRect(sx.toFloat(), sy.toFloat(), sizePx.toFloat(), sizePx.toFloat()),
-                dst = SDLFRect(cx.toFloat(), cy.toFloat(), sizePx.toFloat(), sizePx.toFloat()),
-            )
-            cx += ((advances[c] ?: CELL) * sizePx) / CELL
-        }
+    companion object {
+        /** Rasterization scale: text is rendered this many times larger and downscaled. */
+        const val SUPER_SAMPLE = 4
+        const val MAX_CACHE = 256
     }
-
-    private var currentColor = SDLColor(255, 255, 255)
 }

@@ -208,6 +208,14 @@ class Expr(private val game: Game) {
                     else -> V.VNull
                 }
             }
+            // "core.firstData.xxx" properties (title, floorId etc.)
+            if (t.startsWith("core.firstData.")) {
+                return when (t) {
+                    "core.firstData.title" -> V.VStr(game.data.firstData.title)
+                    "core.firstData.floorId" -> V.VStr(game.data.firstData.floorId)
+                    else -> V.VNull
+                }
+            }
             // "main.xxx" references (levelChoose length etc.)
             if (t.startsWith("main.")) {
                 if (peek() == "(") i++

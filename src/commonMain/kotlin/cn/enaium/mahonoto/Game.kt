@@ -11,7 +11,6 @@ import cn.enaium.sdl.SDLInitFlags
 import cn.enaium.sdl.SDLKeycode
 import cn.enaium.sdl.SDLRenderer
 import cn.enaium.sdl.SDLWindow
-import cn.enaium.sdl.SDLWindowFlags
 
 const val SCREEN_WIDTH = 640
 const val SCREEN_HEIGHT = 480
@@ -43,11 +42,11 @@ fun runGame(assetsDir: String, testMode: Boolean = false, fullTest: Boolean = fa
     assets.setRenderer(renderer)
 
     val audio = Audio(assetsDir)
-    audio.load()
     audio.initStreams()
+    audio.load()
 
     val text = TextRenderer(renderer)
-    text.load("$assetsDir/fonts")
+    text.load()
 
     val game = Game(data, assets, audio, text)
     val render = Renderer(game, assets, text, renderer)
@@ -312,6 +311,7 @@ class PlaythroughTest(private val game: Game) {
     private fun autoPlay(): Boolean {
         val log = game.floorId + "@" + game.locX + "," + game.locY + " p=" + game.panel + " lock=" + game.lockControl + " ph=" + phase + " t=" + frames + " path=" + path.take(6) + " held=" + holdKey
         if (log != lastLog) { lastLog = log; println("PT " + log) }
+
         // win detection
         if (game.screen == Game.Screen.GAME_OVER) {
             println("PLAYTHROUGH WIN: " + (game.gameOverTitle ?: "?"))
@@ -487,6 +487,7 @@ class TestScript(private val game: Game) {
         frames++
         when (state) {
             0 -> { // title screen: test UP/DOWN selection
+
                 if (frames == 1) screenshot()
                 if (frames == 30) key(SDLKeycode.DOWN)
                 if (frames == 50) key(SDLKeycode.DOWN)
@@ -569,7 +570,7 @@ class TestScript(private val game: Game) {
                 }
             }
             7 -> {
-                if (frames == 20) screenshot() // after battle
+                if (frames == 20) screenshot()
                 if (frames > 100) return true
             }
         }

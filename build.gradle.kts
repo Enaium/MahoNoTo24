@@ -12,6 +12,7 @@ version = "1.0-SNAPSHOT"
 repositories {
     mavenCentral()
     google()
+    mavenLocal()
 }
 
 kotlin {
@@ -32,7 +33,10 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
-            implementation("cn.enaium.sdl:sdl-kmp:1.0.7")
+            implementation("cn.enaium.sdl:sdl-kmp:1.0.8")
+            implementation("cn.enaium.sdl:sdl-ttf-kmp:1.0.0")
+            implementation("cn.enaium.sdl:sdl-image-kmp:1.0.0")
+            implementation("cn.enaium.sdl:sdl-mixer-kmp:1.0.0")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
             implementation("io.github.vinceglb:filekit-core:0.15.0")
@@ -42,20 +46,6 @@ kotlin {
         }
     }
 }
-
-tasks.register<JavaExec>("generateAtlas") {
-    group = "dev"
-    description = "Generates the Chinese glyph atlas used by the game UI"
-    mainClass.set("cn.enaium.mahonoto.tools.AtlasGeneratorKt")
-    classpath = kotlin.jvm().compilations.getByName("main").runtimeDependencyFiles +
-            files(kotlin.jvm().compilations.getByName("main").output.allOutputs)
-    args(
-        rootProject.file("assets/fonts/317_黑体.ttf").absolutePath,
-        rootProject.file("assets/fonts").absolutePath,
-        rootProject.file("assets").absolutePath,
-    )
-}
-
 
 tasks.register<Jar>("fatJar") {
     group = "build"

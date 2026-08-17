@@ -1,14 +1,20 @@
 package cn.enaium.mahonoto
 
-import cn.enaium.sdl.SDLAudioData
 import cn.enaium.sdl.SDLAudioDeviceID
-import cn.enaium.sdl.SDLAudioStream
-import cn.enaium.sdl.SDL
+import cn.enaium.sdl.SDLAudioFormat
+import cn.enaium.sdl.SDLAudioSpec
+import cn.enaium.sdl.SDLProperties
+import cn.enaium.sdl.mixer.SDLAudio
+import cn.enaium.sdl.mixer.SDLMixer
+import cn.enaium.sdl.mixer.SDLMixerDevice
+import cn.enaium.sdl.mixer.SDLMixerPlayProp
+import cn.enaium.sdl.mixer.SDLTrack
 
 /**
- * Audio: short SFX are played on a dedicated stream (cleared before each
- * play, like the original's single sound channel); BGM is queued on a
- * separate looping stream.
+ * Audio via sdl-mixer-kmp (SDL_mixer 3).
+ *
+ * Short SFX are played fire-and-forget on the mixer (each play restarts);
+ * BGM loops forever on a dedicated track.
  *
  * Loads:
  *   sounds_wav dir  -> SFX keyed by file base name
@@ -16,53 +22,50 @@ import cn.enaium.sdl.SDL
  */
 class Audio(private val root: String) {
 
-    private val sfx = HashMap<String, ByteArray>()
-    private val bgm = HashMap<String, ByteArray>()
+    private val sfx = HashMap<String, SDLAudio>()
+    private val bgm = HashMap<String, SDLAudio>()
 
-    private var sfxStream: SDLAudioStream? = null
-    private var bgmStream: SDLAudioStream? = null
+    private var device: SDLMixerDevice? = null
+    private var bgmTrack: SDLTrack? = null
     private var bgmKey: String? = null
     private var enabled = true
 
+    private fun spec() = SDLAudioSpec(
+        format = SDLAudioFormat.S16,
+        channels = 2,
+        freq = 44100,
+    )
+
+    fun initStreams() {
+        try {
+            if (!SDLMixer.init()) return
+            device = SDLMixer.createMixerDevice(SDLAudioDeviceID.DEFAULT_PLAYBACK, spec())
+        } catch (t: Throwable) {
+            device = null
+        }
+    }
+
     fun load() {
+        val d = device ?: return
         Fio.listDir("$root/sounds_wav")?.forEach { name ->
             if (!name.endsWith(".wav")) return@forEach
             val key = name.removeSuffix(".wav")
-            val wav = SDL.loadWAV("$root/sounds_wav/$name") ?: return@forEach
-            sfx[key] = wav.data
+            sfx[key] = try { d.loadAudio("$root/sounds_wav/$name") } catch (t: Throwable) { return@forEach }
         }
         Fio.listDir("$root/bgms_wav")?.forEach { name ->
             if (!name.endsWith(".wav")) return@forEach
             val key = name.removeSuffix(".wav")
-            val wav = SDL.loadWAV("$root/bgms_wav/$name") ?: return@forEach
-            bgm[key] = wav.data
-        }
-    }
-
-    fun initStreams() {
-        try {
-            val spec = cn.enaium.sdl.SDLAudioSpec(
-                format = cn.enaium.sdl.SDLAudioFormat.S16,
-                channels = 2,
-                freq = 44100,
-            )
-            sfxStream = SDL.openAudioDeviceStream(SDLAudioDeviceID.DEFAULT_PLAYBACK, spec).also {
-                it.devicePaused = false
-                it.gain = 1.0f
-            }
-            SDL.resumeAudioDevice(SDLAudioDeviceID.DEFAULT_PLAYBACK)
-        } catch (t: Throwable) {
-            sfxStream = null
+            // predecode BGM so the looping track can seek/restart reliably
+            bgm[key] = try { d.loadAudio("$root/bgms_wav/$name", predecode = true) } catch (t: Throwable) { return@forEach }
         }
     }
 
     fun playSfx(key: String) {
         if (!enabled) return
-        val data = sfx[key] ?: return
-        val s = sfxStream ?: return
+        val d = device ?: return
+        val audio = sfx[key] ?: return
         try {
-            s.clear()
-            s.putData(data)
+            d.playAudio(audio)
         } catch (t: Throwable) {
         }
     }
@@ -71,52 +74,59 @@ class Audio(private val root: String) {
     fun playBgm(key: String?) {
         if (key == bgmKey && bgmKey != null) return
         bgmKey = key
-        val s = bgmStream ?: run {
-            if (key == null) return
-            try {
-                val spec = cn.enaium.sdl.SDLAudioSpec(
-                    format = cn.enaium.sdl.SDLAudioFormat.S16,
-                    channels = 2,
-                    freq = 44100,
-                )
-                bgmStream = SDL.openAudioDeviceStream(SDLAudioDeviceID.DEFAULT_PLAYBACK, spec).also {
-                    it.devicePaused = false
-                    it.gain = 0.7f
-                }
-                SDL.resumeAudioDevice(SDLAudioDeviceID.DEFAULT_PLAYBACK)
-                bgmStream!!
-            } catch (t: Throwable) {
-                return
-            }
+        val d = device ?: return
+        if (key == null) {
+            d.stopAllTracks()
+            return
         }
-        val data = key?.let { bgm[it] }
-        if (data == null) {
-            s.clear()
-        } else {
-            s.clear()
-            s.putData(data)
+        val audio = bgm[key]
+        if (audio == null) {
+            d.stopAllTracks()
+            return
+        }
+        val track = bgmTrack ?: d.createTrack().also {
+            it.tag("bgm")
+            bgmTrack = it
+        }
+        track.setAudio(audio)
+        val options = SDLProperties.create()
+        SDLProperties.setProperty(options, SDLMixerPlayProp.LOOPS_NUMBER, -1L)
+        try {
+            track.play(options)
+        } catch (t: Throwable) {
         }
     }
 
-    /** Re-queues BGM data when the stream is running low (loop support). */
     fun update() {
-        val s = bgmStream ?: return
+        val d = device ?: return
         val key = bgmKey ?: return
-        val data = bgm[key] ?: return
-        if (s.queued < data.size / 2 && s.queued < 512_000) {
-            s.putData(data)
+        val audio = bgm[key] ?: return
+        val track = bgmTrack ?: return
+        // if the mixer's loop stalls/ends, restart the track
+        if (!track.playing && !track.paused) {
+            val options = SDLProperties.create()
+            SDLProperties.setProperty(options, SDLMixerPlayProp.LOOPS_NUMBER, -1L)
+            try {
+                track.play(options)
+            } catch (t: Throwable) {
+            }
         }
     }
 
     fun stopAll() {
-        bgmStream?.clear()
-        sfxStream?.clear()
+        try {
+            device?.stopAllTracks()
+        } catch (t: Throwable) {
+        }
     }
 
     fun close() {
-        sfxStream?.close()
-        bgmStream?.close()
-        sfxStream = null
-        bgmStream = null
+        try {
+            device?.close()
+        } catch (t: Throwable) {
+        }
+        device = null
+        bgmTrack = null
+        SDLMixer.quit()
     }
 }
