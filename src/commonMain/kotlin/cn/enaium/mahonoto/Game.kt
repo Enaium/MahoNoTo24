@@ -9,8 +9,11 @@ import cn.enaium.sdl.SDLColor
 import cn.enaium.sdl.SDLEvent
 import cn.enaium.sdl.SDLInitFlags
 import cn.enaium.sdl.SDLKeycode
+import cn.enaium.sdl.SDLLogicalPresentation
 import cn.enaium.sdl.SDLRenderer
+import cn.enaium.sdl.SDLRendererFlags
 import cn.enaium.sdl.SDLWindow
+import cn.enaium.sdl.SDLWindowFlags
 
 const val SCREEN_WIDTH = 640
 const val SCREEN_HEIGHT = 480
@@ -31,8 +34,19 @@ fun runGame(assetsDir: String, testMode: Boolean = false, fullTest: Boolean = fa
         title = "24层魔塔",
         width = SCREEN_WIDTH,
         height = SCREEN_HEIGHT,
+        // High-DPI window: on HiDPI (Retina) displays the backing store is
+        // rendered at pixel density (e.g. 2x), instead of SDL upscaling the
+        // 640x480 framebuffer which blurs the pixel art.
+        flags = SDLWindowFlags.HIGH_PIXEL_DENSITY,
     )
-    val renderer = SDL.createRenderer(window)
+    // Present synchronized with the display refresh: paces frames evenly
+    // (no stutter from the fixed-delay loop's timer drift). Headless/dummy
+    // drivers ignore the flag and fall back to a fixed delay.
+    val renderer = SDL.createRenderer(window, flags = SDLRendererFlags.PRESENTVSYNC)
+    // Keep the game in its native 640x480 logical space and let the renderer
+    // scale it by an integer factor to the window's pixel size. Mouse events
+    // stay in window-logical coordinates, so game input is unaffected.
+    renderer.setLogicalPresentation(SCREEN_WIDTH, SCREEN_HEIGHT, SDLLogicalPresentation.INTEGER_SCALE)
 
     // ---- load the h5mota game data + resources ----
     val data = GameData(assetsDir)
@@ -42,6 +56,8 @@ fun runGame(assetsDir: String, testMode: Boolean = false, fullTest: Boolean = fa
     assets.setRenderer(renderer)
 
     val audio = Audio(assetsDir)
+    // scripted tests are silent (no BGM/SFX on the machine running them)
+    if (testMode) audio.setEnabled(false)
     audio.initStreams()
     audio.load()
 
@@ -92,7 +108,11 @@ fun runGame(assetsDir: String, testMode: Boolean = false, fullTest: Boolean = fa
         render.render()
 
         renderer.present()
-        SDL.delay(16)
+        // With vsync present() already paced to the refresh; delaying again
+        // would halve the frame rate. Fall back to the fixed delay only when
+        // vsync is unavailable (dummy/software drivers).
+        val vsync = runCatching { renderer.vsync }.getOrDefault(false)
+        if (!vsync) SDL.delay(16)
 
         if (test != null) {
             if (test.takeShot()) {

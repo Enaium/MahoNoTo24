@@ -50,7 +50,10 @@ class Audio(private val root: String) {
         Fio.listDir("$root/sounds_wav")?.forEach { name ->
             if (!name.endsWith(".wav")) return@forEach
             val key = name.removeSuffix(".wav")
-            sfx[key] = try { d.loadAudio("$root/sounds_wav/$name") } catch (t: Throwable) { return@forEach }
+            // predecode all SFX: an undecoded audio decodes on its first play,
+            // which stalls the frame right when a sound starts (e.g. the
+            // attack sfx when walking into an enemy in turbo mode).
+            sfx[key] = try { d.loadAudio("$root/sounds_wav/$name", predecode = true) } catch (t: Throwable) { return@forEach }
         }
         Fio.listDir("$root/bgms_wav")?.forEach { name ->
             if (!name.endsWith(".wav")) return@forEach
@@ -58,6 +61,12 @@ class Audio(private val root: String) {
             // predecode BGM so the looping track can seek/restart reliably
             bgm[key] = try { d.loadAudio("$root/bgms_wav/$name", predecode = true) } catch (t: Throwable) { return@forEach }
         }
+    }
+
+    /** Master mute (used by the scripted headless tests). */
+    fun setEnabled(e: Boolean) {
+        enabled = e
+        if (!e) stopAll()
     }
 
     fun playSfx(key: String) {
@@ -72,6 +81,7 @@ class Audio(private val root: String) {
 
     /** Plays a BGM track (key like "bgm_720"); null stops music. */
     fun playBgm(key: String?) {
+        if (!enabled) return
         if (key == bgmKey && bgmKey != null) return
         bgmKey = key
         val d = device ?: return

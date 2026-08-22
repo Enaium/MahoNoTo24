@@ -91,5 +91,6 @@ java -jar build/libs/MahoNoTo-1.0-SNAPSHOT-all.jar assets
   [FileKit](https://github.com/vinceglb/FileKit)。
 - 游戏逻辑对照 h5mota 引擎实现：移动/碰撞、事件机、战斗公式、商店、
   状态栏（自绘）、对话框（winSkin 九宫格）等。
-- 渲染为 640x480 窗口，地图 13x13（32px/格），状态栏在左侧、工具栏在地图下方，
-  与 h5mota PC 布局一致。
+- 渲染为 640x480 逻辑窗口，地图 13x13（32px/格），状态栏在左侧、工具栏在地图下方，
+  与 h5mota PC 布局一致；窗口启用 SDL 高像素（HiDPI）模式，在 Retina 等高分屏上
+  按原生像素密度整数倍放大渲染，点阵画面保持锐利不失真。

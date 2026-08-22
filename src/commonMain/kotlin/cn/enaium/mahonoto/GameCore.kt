@@ -446,6 +446,11 @@ class Game(
         val dir = heldDir ?: return
         direction = dir
         if (!canMoveHero()) return
+        startStep(dir)
+    }
+
+    /** Begins a step into [dir]; blocked (noPass) cells are triggered in place. */
+    private fun startStep(dir: String) {
         val delta = scan[dir]!!
         val tx = locX + delta.first
         val ty = locY + delta.second
@@ -470,6 +475,18 @@ class Game(
         heroMoving = false
         heroLeg = !heroLeg
         moveOneStep()
+        // Continue walking without an idle frame between tiles: while the
+        // direction is still held (past the auto-walk threshold) and nothing
+        // interrupted the walk (event/panel/battle/game-over), chain the next
+        // step immediately so the hero flows over the floor instead of
+        // pausing one frame per tile. Taps still walk exactly one cell.
+        if (heroMoving || lockControl || panel != null || battle != null || frames.isNotEmpty()) return
+        if (gameOverActive || screen != Screen.GAME) return
+        val dir = heldDir ?: return
+        if (holdT < 300.0) return
+        direction = dir
+        if (!canMoveHero()) return
+        startStep(dir)
     }
 
     /** Called when the hero arrives at a cell. */
@@ -2761,6 +2778,10 @@ class Game(
     }
 
     private fun updateMovement(dt: Long) {
+        // Accumulate the hold time while the direction is down, mid-step
+        // included, so a held key chains steps without an idle frame
+        // (startMove resets the timer each key press).
+        if (heldDir != null) holdT += dt
         if (heroMoving) {
             val speed = values["moveSpeed"] ?: 100.0
             moveT += dt / speed
@@ -2770,7 +2791,6 @@ class Game(
         } else if (heldDir != null && !lockControl && panel == null && battle == null && frames.isEmpty()) {
             // one immediate step happens in startMove; the continuous walk
             // only starts after the key has been held for a while
-            holdT += dt
             if (holdT >= 300.0) {
                 tryStep()
             }
